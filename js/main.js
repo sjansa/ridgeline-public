@@ -1,19 +1,19 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, D2R } from './terrain.js?v=1115.2115-d4a83cf';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1115.2115-d4a83cf';
-import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1115.2115-d4a83cf';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1115.2115-d4a83cf';
-import { renderSim } from './sim.js?v=1115.2115-d4a83cf';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1115.2115-d4a83cf';
-import { Shader, buildScene, drawOverlay } from './render.js?v=1115.2115-d4a83cf';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1115.2115-d4a83cf';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1115.2115-d4a83cf';
-import { parseExif } from './exif.js?v=1115.2115-d4a83cf';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1115.2115-d4a83cf';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1115.2115-d4a83cf';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1115.2115-d4a83cf';
+import { buildPano, chainCrests, D2R } from './terrain.js?v=1115.2129-e2ef7b8';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1115.2129-e2ef7b8';
+import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1115.2129-e2ef7b8';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1115.2129-e2ef7b8';
+import { renderSim } from './sim.js?v=1115.2129-e2ef7b8';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1115.2129-e2ef7b8';
+import { Shader, buildScene, drawOverlay } from './render.js?v=1115.2129-e2ef7b8';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1115.2129-e2ef7b8';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1115.2129-e2ef7b8';
+import { parseExif } from './exif.js?v=1115.2129-e2ef7b8';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1115.2129-e2ef7b8';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1115.2129-e2ef7b8';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1115.2129-e2ef7b8';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -758,15 +758,20 @@ function wire() {
   $('more').onclick = () => { sheet.hidden = !sheet.hidden; };
   $('sheetClose').onclick = () => { sheet.hidden = true; };
   // Full screen in a browser. Android browsers can be asked for it on a tap.
-  // iPhone Safari cannot: there the app runs full screen only when it is
+  // iPhone Safari generally cannot: there the app runs full screen only when it is
   // opened from a Home Screen icon, so the start screen says how to add one.
   const native = !!window.Capacitor?.isNativePlatform?.();
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
   $('a2hs').hidden = native || !ios || standalone;
   const goFull = () => {
-    if (native || ios || standalone || document.fullscreenElement) return;
-    document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })?.catch(() => {});
+    if (native || standalone || document.fullscreenElement || document.webkitFullscreenElement) return;
+    // tried on iPhone too, in case its Safari allows it; where it does not, nothing happens
+    const el = document.documentElement;
+    try {
+      if (el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' })?.catch(() => {});
+      else el.webkitRequestFullscreen?.();
+    } catch { /* stays in the browser window */ }
   };
   const enter = async fn => {
     $('startErr').textContent = '';
