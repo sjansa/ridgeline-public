@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0c1a22">
+<title>Ridgeline Trail View</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ink: #0c1a22; --panel: rgba(12, 26, 34, 0.82); --line: rgba(255, 255, 255, 0.16);
+    --text: #f2f6f8; --dim: #a9bac4; --lift: #9b4dff; --go: #3fb6ff;
+    --green: #2fa84f; --blue: #2d7ff9; --black: #16181c;
+    --display: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+    --body: "Barlow", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
+    --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; background: var(--ink); color: var(--text); font: 15px/1.4 var(--body); overflow: hidden; overscroll-behavior: none; }
+  [hidden] { display: none !important; }
+  #stage, #stage canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  video, .offscreen { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  #top { position: fixed; left: 0; right: 0; top: 0; padding: calc(var(--st) + 10px) calc(var(--sr) + 12px) 0 calc(var(--sl) + 12px); display: flex; gap: 8px; align-items: flex-start; pointer-events: none; }
+  .chip .ver { float: right; margin-left: 10px; opacity: 0.55; font-weight: 500; font-size: 11px; letter-spacing: 0; }
+  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font: 600 14px/1.2 var(--display); letter-spacing: 0.04em; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #status { flex: 1; min-width: 0; border-radius: 14px; font-family: var(--body); font-weight: 500; font-size: 13px; letter-spacing: 0; }
+  #status b { font: 700 14px var(--display); letter-spacing: 0.06em; text-transform: uppercase; margin-right: 6px; }
+  #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f2b632; margin-right: 6px; vertical-align: 1px; }
+  #status.ok .dot { background: #46d17f; } #status.bad .dot { background: var(--lift); }
+
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--go); outline-offset: 2px; }
+
+  /* Dock: the four layer switches and the menu button. Along the bottom when
+     the phone is upright, down the right-hand edge when it is on its side, so
+     it never sits across the slope you are looking at. */
+  #bar { position: fixed; left: 50%; bottom: calc(var(--sb) + 10px); transform: translateX(-50%); display: flex; gap: 2px; padding: 5px; background: var(--panel); border: 1px solid var(--line); border-radius: 22px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); max-width: calc(100vw - 16px); }
+  .tog { background: none; border-radius: 17px; min-width: 62px; min-height: 54px; padding: 6px 6px 5px; display: grid; justify-items: center; align-content: center; gap: 3px; font: 600 12px/1 var(--body); color: var(--dim); }
+  .tog svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.55; }
+  .tog[aria-pressed="true"] { color: #fff; background: rgba(255, 255, 255, 0.13); }
+  .tog[aria-pressed="true"] svg { opacity: 1; }
+  .tog[data-k="lifts"][aria-pressed="true"] svg { stroke: #ff6b61; }
+  .tog[data-k="runs"][aria-pressed="true"] svg { stroke: var(--go); }
+  #more { border-left: 1px solid var(--line); border-radius: 0 17px 17px 0; margin-left: 3px; padding-left: 9px; }
+
+  /* Panel: short and see-through so the change you make is visible behind it. */
+  .sheet { position: fixed; left: 8px; right: 8px; bottom: calc(max(var(--sb), var(--kb, 0px)) + 8px); max-height: 46%; display: flex; flex-direction: column; background: rgba(13, 28, 37, 0.86); border: 1px solid var(--line); border-radius: 22px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); overflow: hidden; }
+  .sheet > header { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
+  .tabs { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; background: rgba(0, 0, 0, 0.28); border-radius: 13px; padding: 3px; }
+  .tabs button { background: none; border-radius: 10px; min-height: 44px; font: 600 14px var(--body); color: var(--dim); }
+  .tabs button[aria-selected="true"] { background: rgba(255, 255, 255, 0.16); color: #fff; }
+  .x { background: rgba(255, 255, 255, 0.1); border-radius: 50%; width: 44px; height: 44px; flex: none; display: grid; place-items: center; color: var(--text); }
+  .x svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; fill: none; }
+  .pane { overflow: auto; -webkit-overflow-scrolling: touch; padding: 4px calc(14px) 12px; display: grid; gap: 2px; align-content: start; }
+  .sheet #sheet-pad { height: 0; }
+  .row { display: grid; gap: 6px; padding: 9px 2px; }
+  .row label, .legend { color: var(--dim); font-size: 13px; }
+  .row label span { color: var(--text); font-weight: 600; float: right; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .seg.two { grid-template-columns: repeat(2, 1fr); }
+  .seg button, .btn { background: rgba(255, 255, 255, 0.09); border: 1px solid var(--line); border-radius: 12px; min-height: 46px; padding: 8px; font: 600 15px var(--body); }
+  .seg button[aria-pressed="true"] { background: var(--go); color: #06202e; border-color: var(--go); }
+  select { width: 100%; min-height: 48px; background: rgba(255, 255, 255, 0.09); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: 500 16px var(--body); }
+  input[type="range"] { width: 100%; height: 44px; margin: 0; accent-color: var(--go); }
+  /* list rows with a switch on the right */
+  .sw { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; padding: 0 2px; font-size: 16px; color: var(--text); border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+  .sw:last-child { border-bottom: 0; }
+  .sw small { display: block; color: var(--dim); font-size: 12px; margin-top: 1px; }
+  .sw input { appearance: none; -webkit-appearance: none; flex: none; width: 52px; height: 32px; border-radius: 16px; background: rgba(255, 255, 255, 0.2); position: relative; margin: 0; transition: background 0.15s; }
+  .sw input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+  .sw input:checked { background: var(--go); }
+  .sw input:checked::after { transform: translateX(20px); }
+  @media (prefers-reduced-motion: reduce) { .sw input, .sw input::after { transition: none; } }
+  #debug { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--dim); white-space: pre-wrap; padding: 6px 2px; }
+  .pane .btn { width: 100%; margin: 6px 0; }
+  .pane .legend { margin: 6px 2px; }
+  #sheet:not([hidden]) ~ #bar, #sheet:not([hidden]) ~ #zoom, #sheet:not([hidden]) ~ #credit, #sheet:not([hidden]) ~ #getHere { display: none; }
+  #getHere { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); background: var(--go); color: #06202e; border-color: var(--go); padding: 12px 18px; font-size: 16px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
+  #getHere[hidden] { display: none; }
+  .tabs button { padding: 0 2px; }
+  .area { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .area b { display: block; font-weight: 600; }
+  .area small { color: var(--dim); }
+  .area .btn { width: auto; min-width: 72px; min-height: 44px; margin: 0; padding: 6px 10px; }
+  .area .btn[disabled] { opacity: 0.4; }
+  .btn.danger { color: #ff8f86; }
+  .btn.go { background: var(--go); color: #06202e; border-color: var(--go); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pane input[type="search"], .pane input[type="text"] { width: 100%; min-height: 44px; background: rgba(255, 255, 255, 0.09); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; color: var(--text); font: 16px var(--body); }
+  details.info { border-top: 1px solid var(--line); }
+  details.info summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; font: 600 15px var(--body); cursor: pointer; list-style: none; }
+  details.info summary::-webkit-details-marker { display: none; }
+  details.info summary::after { content: "+"; font-size: 20px; color: var(--dim); }
+  details.info[open] summary::after { content: "–"; }
+  details.info p { margin: 0 2px 9px; font: 400 13px/1.45 var(--body); color: var(--dim); }
+  details.info p b { color: var(--text); }
+  details.info a { color: var(--go); }
+  .pane textarea { width: 100%; min-height: 96px; resize: none; background: rgba(255, 255, 255, 0.09); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; color: var(--text); font: 16px/1.35 var(--body); }
+  #fb { border-top: 1px solid var(--line); }
+  #fb > b { font: 600 15px var(--body); }
+  #fbShots { display: flex; flex-wrap: wrap; gap: 8px; }
+  #fbShots:empty { display: none; }
+  #fbShots button { position: relative; width: 64px; height: 64px; padding: 0; border-radius: 10px; border: 1px solid var(--line); background: #0c1a22 center / cover no-repeat; }
+  #fbShots button::after { content: "×"; position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, 0.7); color: #fff; font: 600 15px/20px var(--body); }
+  #fbMsg.bad { color: #ff8f86; } #fbMsg.ok { color: #7fe3a8; }
+  .pane progress { width: 100%; height: 10px; accent-color: var(--go); }
+  #addErr:empty, #storage:empty { display: none; }
+  #addErr { color: #ff8f86; }
+  #zoom { position: fixed; left: 50%; bottom: calc(var(--sb) + 86px); transform: translateX(-50%); display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 26px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  #zoom[hidden] { display: none; }
+  #credit { position: fixed; left: calc(var(--sl) + 10px); bottom: calc(var(--sb) + 92px); padding: 3px 7px; border-radius: 8px; background: rgba(12, 20, 27, 0.55); color: #dfe8ed; font: 500 11px/1.3 var(--body); pointer-events: none; }
+  #credit[hidden] { display: none; }
+  #zoom button { min-width: 44px; height: 44px; padding: 0 6px; border-radius: 22px; background: none; font: 600 14px/1 var(--body); color: var(--dim); }
+  #zoom button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.16); color: #ffd84a; min-width: 52px; }
+
+  #legend { position: fixed; left: calc(var(--sl) + 12px); top: calc(var(--st) + 56px); width: min(46vw, 230px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px 5px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; }
+  #legendBar { height: 9px; border-radius: 3px; }
+  #legendTicks { position: relative; height: 15px; font: 600 12px var(--display); color: var(--text); }
+  #legendTicks span { position: absolute; top: 2px; transform: translateX(-50%); }
+  #legendTicks span:first-child { transform: none; } #legendTicks span:last-child { transform: translateX(-100%); }
+
+  @media (orientation: landscape) {
+    #bar { left: auto; right: calc(var(--sr) + 10px); bottom: auto; top: 50%; transform: translateY(-50%); flex-direction: column; max-height: calc(100vh - 16px); }
+    .tog { min-height: 50px; }
+    #zoom { bottom: calc(var(--sb) + 10px); }
+    #credit { bottom: calc(var(--sb) + 8px); }
+    #more { border-left: 0; border-top: 1px solid var(--line); border-radius: 0 0 17px 17px; margin: 3px 0 0; padding: 9px 6px 5px; }
+    .sheet { left: auto; right: calc(var(--sr) + 8px); top: calc(var(--st) + 8px); bottom: calc(max(var(--sb), var(--kb, 0px)) + 8px); width: min(360px, 46vw); max-height: none; }
+    #top { padding-right: calc(var(--sr) + 96px); }
+  }
+
+  #start { position: fixed; inset: 0; background: linear-gradient(180deg, #17384a 0%, #0c1a22 62%); display: grid; align-content: center; justify-items: center; gap: 18px; padding: calc(var(--st) + 24px) 24px calc(var(--sb) + 24px); text-align: center; overflow: auto; }
+  #start svg { width: min(86vw, 460px); height: auto; }
+  #start h1 { font: 700 clamp(34px, 9vw, 52px)/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; margin: 0; text-wrap: balance; }
+  #start p { color: var(--dim); max-width: 34em; margin: 0; text-wrap: pretty; }
+  .cta { display: grid; gap: 10px; width: min(100%, 340px); }
+  .cta .btn { padding: 14px; font-size: 19px; }
+  .cta .primary { background: var(--go); color: #06202e; border-color: var(--go); }
+  #start #a2hs { border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; color: var(--text); font-size: 14px; }
+  #start #a2hs svg { display: inline; width: 18px; height: 18px; vertical-align: -3px; fill: none; stroke: var(--go); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #startErr { color: #ffb4ad; min-height: 1.4em; }
+  @media (orientation: landscape) and (max-height: 520px) { #start svg { display: none; } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl"></canvas>
+  <canvas id="ov"></canvas>
+</div>
+<video id="video" playsinline muted></video>
+
+<div id="top">
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1115.2115-d4a83cf</span></div>
+</div>
+
+<div id="legend" hidden>
+  <div id="legendBar"></div>
+  <div id="legendTicks"><span>0°</span><span>15°</span><span>30°</span><span>45°</span><span>60°</span><span>90°</span></div>
+</div>
+
+<div id="sheet" class="sheet" hidden>
+  <header>
+    <div class="tabs" id="tabs" role="tablist">
+      <button role="tab" data-tab="layers" aria-selected="true">Layers</button>
+      <button role="tab" data-tab="look" aria-selected="false">Look</button>
+      <button role="tab" data-tab="view" aria-selected="false">View</button>
+      <button role="tab" data-tab="maps" aria-selected="false">Maps</button>
+      <button role="tab" data-tab="help" aria-selected="false">Info</button>
+    </div>
+    <button class="x" id="sheetClose" aria-label="Close menu"><svg viewBox="0 0 18 18"><path d="M3 3l12 12M15 3L3 15"/></svg></button>
+  </header>
+
+  <div class="pane" data-pane="layers">
+    <label class="sw">Run shading<input id="cRuns" data-k="runs" type="checkbox" checked></label>
+    <label class="sw">Lifts<input id="cLifts" data-k="lifts" type="checkbox" checked></label>
+    <label class="sw">Ridgelines<input id="cRidges" data-k="ridges" type="checkbox" checked></label>
+    <label class="sw">Names<input id="cNames" data-k="labels" type="checkbox" checked></label>
+    <label class="sw">Peak names<input id="cPeaks" type="checkbox" checked></label>
+    <label class="sw">Run centerlines<input id="cLines" type="checkbox"></label>
+  </div>
+
+  <div class="pane" data-pane="look" hidden>
+    <div class="row">
+      <label for="alpha">Overlay opacity <span id="alphaVal"></span></label>
+      <input id="alpha" type="range" min="0" max="1" step="0.05">
+    </div>
+    <div class="row">
+      <label>Shade the snow by</label>
+      <div class="seg two" id="shade">
+        <button data-shade="rating" aria-pressed="true">Trail rating</button>
+        <button data-shade="slope" aria-pressed="false">Slope angle</button>
+      </div>
+    </div>
+    <label class="sw">Outlines only<input id="cOutline" type="checkbox"></label>
+    <label class="sw"><span>Trim runs to snow<small>Shade only where the camera sees snow</small></span><input id="cSnow" type="checkbox" checked></label>
+  </div>
+
+  <div class="pane" data-pane="view" hidden>
+    <div class="row">
+      <div class="seg" id="modes">
+        <button data-mode="live" aria-pressed="false">Camera</button>
+        <button data-mode="demo" aria-pressed="false">Demo</button>
+        <button data-mode="photo" aria-pressed="false">Photo</button>
+      </div>
+    </div>
+    <div class="row">
+      <label for="area">Map area</label>
+      <select id="area"></select>
+    </div>
+    <div class="row" id="spotRow">
+      <label for="spot">Stand at</label>
+      <select id="spot"></select>
+    </div>
+    <div class="row" id="lensRow" hidden>
+      <label for="lens">Camera lens</label>
+      <select id="lens"></select>
+    </div>
+    <div class="row">
+      <label for="fov">Camera field of view <span id="fovVal"></span></label>
+      <input id="fov" type="range" min="4" max="110" step="0.5">
+    </div>
+    <label class="sw">Auto-align to skyline<input id="cAuto" type="checkbox" checked></label>
+    <label class="sw"><span>Solve lens too<small>Work out zoom and distortion from the picture</small></span><input id="cLens" type="checkbox" checked></label>
+    <label class="sw">I'm on a chairlift<input id="cChair" type="checkbox"></label>
+    <button class="btn" id="reset">Reset alignment</button>
+  </div>
+
+  <div class="pane" data-pane="maps" hidden>
+    <div id="areas"></div>
+    <button class="btn" id="addArea">Add a map area…</button>
+    <div id="addForm" hidden>
+      <p class="legend">Search for a place, or use where you are now. Needs a connection.</p>
+      <div class="row">
+        <label for="addPlace">Place</label>
+        <input id="addPlace" type="search" placeholder="Ski area or town" autocomplete="off">
+      </div>
+      <div class="row">
+        <label for="addSize">Size</label>
+        <select id="addSize"><option value="8">8 × 8 km</option><option value="14" selected>14 × 14 km</option><option value="20">20 × 20 km</option></select>
+      </div>
+      <div class="two"><button class="btn" id="addFind">Find place</button><button class="btn" id="addHere">Around me</button></div>
+    </div>
+    <div id="addConfirm" hidden>
+      <p class="legend" id="addWhat"></p>
+      <div class="row">
+        <label for="addName">Name</label>
+        <input id="addName" type="text" maxlength="40" autocomplete="off">
+      </div>
+      <div class="two"><button class="btn go" id="addGo">Download</button><button class="btn" id="addCancel">Cancel</button></div>
+    </div>
+    <div id="addProg" hidden>
+      <progress id="addBar" max="1" value="0"></progress>
+      <p class="legend" id="addMsg"></p>
+      <button class="btn" id="addStop">Cancel</button>
+    </div>
+    <p class="legend" id="addErr"></p>
+    <p class="legend" id="storage"></p>
+  </div>
+
+  <div class="pane" data-pane="help" hidden>
+    <p class="legend">Line the overlay up by hand: drag to slide it, twist two fingers to roll it, pinch to zoom it. With a mouse, Shift-drag rolls and the wheel zooms. In camera mode a pinch (or the zoom buttons) zooms the camera and the overlay follows; choose another lens under Menu &gt; View. (In the demo a drag looks around and a pinch zooms the photo.) Green circle, blue square and black diamond follow North American trail ratings; with run lines on, black runs are drawn in red and lifts in purple.</p>
+    <div class="row" id="fb">
+      <b>Beta feedback</b>
+      <label for="fbNotes">Found a problem? Take a screenshot of it, then describe it here and email it to the developer.</label>
+      <textarea id="fbNotes" rows="4" maxlength="4000" placeholder="What happened, and what you expected"></textarea>
+      <div id="fbShots" aria-label="Screenshots to send"></div>
+      <div class="two"><button class="btn" id="fbAdd">Add screenshots</button><button class="btn go" id="fbSend">Email feedback</button></div>
+      <p class="legend" id="fbMsg" role="status"></p>
+      <p class="legend">Opens a new message in your mail app for you to send. It includes the readout below, with your position if the app has one, so the problem can be reproduced; you can delete that from the message.</p>
+    </div>
+    <div id="debug"></div>
+    <button class="btn" id="rec">Record sensors (12 s)</button>
+    <p class="legend" id="recHint">For diagnosing compass trouble: tap, then point at one landmark and slowly tip the phone from looking down to looking up and back. Works in camera mode.</p>
+    <div id="recOut" hidden>
+      <textarea id="recText" readonly rows="6" style="width:100%;font:11px ui-monospace,monospace;background:#0c1a22;color:#cfe;border:1px solid var(--line);border-radius:8px;padding:6px"></textarea>
+      <div style="display:flex;gap:8px"><button class="btn" id="recCopy">Copy</button><button class="btn" id="recShare">Share</button></div>
+    </div>
+    <details class="info">
+      <summary>Credits and map data</summary>
+      <p>Lifts, runs, peaks and place search: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. The data is available under the <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">Open Database License</a>. Found a mistake on the mountain? You can fix it for everyone at openstreetmap.org.</p>
+      <p>Terrain: U.S. Geological Survey 3D Elevation Program, and <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Terrain Tiles</a> hosted by Amazon Web Services (Mapzen, with data from USGS, NASA SRTM, ASTER, ETOPO1 and others).</p>
+      <p>Compass correction: World Magnetic Model 2025, NOAA National Centers for Environmental Information.</p>
+      <p>Demo photo: "Panoramic Alta" by PalauanReich, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, via Wikimedia Commons; shown resized, with this app's overlay drawn on it.</p>
+      <p>Typefaces: Barlow and Barlow Condensed by Jeremy Tribby, SIL Open Font License. Built with Capacitor (MIT License).</p>
+      <p id="attrib"></p>
+    </details>
+    <details class="info">
+      <summary>Safety and legal</summary>
+      <p><b>This app is a guide to what you are looking at, not a safety device.</b> Run and lift positions, names and ratings come from a volunteer-made map and can be wrong, incomplete or out of date. The overlay can also be misaligned with the view.</p>
+      <p>The app does not know which runs or lifts are open, where the ski-area boundary is, or anything about snow, weather, avalanche danger, cliffs or other hazards. Always obey signs, ropes, closures and ski patrol, and use the resort's official trail map. Terrain marked as backcountry is not patrolled or controlled.</p>
+      <p>Do not use your phone while skiing or riding. Stop in a safe place, out of the way of others, before looking at the screen.</p>
+      <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
+      <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
+      <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1115.2115-d4a83cf</span></p>
+    </details>
+  </div>
+</div>
+
+<button id="getHere" class="btn" hidden>Download a map for here</button>
+<div id="zoom" role="group" aria-label="Camera zoom" hidden></div>
+<div id="credit" hidden></div>
+<nav id="bar" aria-label="Layers" hidden>
+  <button class="tog" data-k="runs" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M8 3c-3 4 5 6 2 10s4 5 2 8"/><path d="M15 3c-3 4 5 6 2 10s4 5 2 8"/></svg>Runs</button>
+  <button class="tog" data-k="lifts" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M3 8l18-4"/><path d="M12 6v4"/><rect x="7" y="10" width="10" height="9" rx="2.5"/><path d="M7 14h10"/></svg>Lifts</button>
+  <button class="tog" data-k="ridges" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M2 19l7-11 4 6 3-4 6 9"/></svg>Ridges</button>
+  <button class="tog" data-k="labels" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 7h11l5 5-5 5H4z"/><path d="M8 12h5"/></svg>Names</button>
+  <button class="tog" id="more" aria-pressed="false" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Menu</button>
+</nav>
+
+<div id="start">
+  <svg viewBox="0 0 460 150" aria-hidden="true">
+    <path d="M0 118 L60 70 L98 96 L150 34 L196 88 L236 58 L300 112 L350 76 L460 124 V150 H0 Z" fill="#1d4458"/>
+    <path d="M150 34 L170 78 L158 150 H132 L140 80 Z" fill="#f2f6f8" opacity="0.9"/>
+    <path d="M236 58 L262 104 L250 150 H226 L232 100 Z" fill="#f2f6f8" opacity="0.9"/>
+    <path d="M0 118 L60 70 L98 96 L150 34 L196 88 L236 58 L300 112 L350 76 L460 124" fill="none" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M40 140 L236 58" stroke="#9b4dff" stroke-width="3"/>
+    <circle cx="40" cy="140" r="5" fill="#9b4dff" stroke="#fff" stroke-width="1.5"/><circle cx="236" cy="58" r="5" fill="#9b4dff" stroke="#fff" stroke-width="1.5"/>
+  </svg>
+  <h1>Ridgeline Trail View</h1>
+  <p>Point your phone at the mountain. Ridges are outlined, lifts are drawn and named, and runs are shaded by rating where the camera sees snow. <span id="covers"></span></p>
+  <div class="cta">
+    <button class="btn primary" id="goLive">Use my camera</button>
+    <button class="btn" id="goDemo">Try the demo</button>
+    <button class="btn" id="goPhoto">Open a photo</button>
+  </div>
+  <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon.</p>
+  <p id="startErr" role="alert"></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1115.2115-d4a83cf</span></p>
+</div>
+<input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
+<input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
+<script type="module" src="js/main.js?v=1115.2115-d4a83cf"></script>
+</body>
+</html>

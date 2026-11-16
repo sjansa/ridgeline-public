@@ -1,0 +1,38 @@
+[
+ {
+  "id": "cottonwoods",
+  "name": "Cottonwood Canyons",
+  "built": "2026-11-13T20:38:53+00:00",
+  "bbox": [
+   -111.705,
+   40.535,
+   -111.545,
+   40.655
+  ],
+  "bytes": 5010230,
+  "files": [
+   "pack.json",
+   "dem_fine.bin",
+   "dem_coarse.bin",
+   "features.json"
+  ]
+ },
+ {
+  "id": "parkcity",
+  "name": "Park City & Deer Valley",
+  "built": "2026-11-14T05:25:00+00:00",
+  "bbox": [
+   -111.61,
+   40.575,
+   -111.43,
+   40.705
+  ],
+  "bytes": 6740279,
+  "files": [
+   "pack.json",
+   "dem_fine.bin",
+   "dem_coarse.bin",
+   "features.json"
+  ]
+ }
+]
