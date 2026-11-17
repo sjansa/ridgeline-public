@@ -1,19 +1,19 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, D2R } from './terrain.js?v=1115.2129-e2ef7b8';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1115.2129-e2ef7b8';
-import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1115.2129-e2ef7b8';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1115.2129-e2ef7b8';
-import { renderSim } from './sim.js?v=1115.2129-e2ef7b8';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1115.2129-e2ef7b8';
-import { Shader, buildScene, drawOverlay } from './render.js?v=1115.2129-e2ef7b8';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1115.2129-e2ef7b8';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1115.2129-e2ef7b8';
-import { parseExif } from './exif.js?v=1115.2129-e2ef7b8';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1115.2129-e2ef7b8';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1115.2129-e2ef7b8';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1115.2129-e2ef7b8';
+import { buildPano, chainCrests, D2R } from './terrain.js?v=1117.0047-f8a762f';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1117.0047-f8a762f';
+import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1117.0047-f8a762f';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1117.0047-f8a762f';
+import { renderSim } from './sim.js?v=1117.0047-f8a762f';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1117.0047-f8a762f';
+import { Shader, buildScene, drawOverlay } from './render.js?v=1117.0047-f8a762f';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1117.0047-f8a762f';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1117.0047-f8a762f';
+import { parseExif } from './exif.js?v=1117.0047-f8a762f';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1117.0047-f8a762f';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1117.0047-f8a762f';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1117.0047-f8a762f';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {

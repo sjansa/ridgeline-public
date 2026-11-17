@@ -1,8 +1,8 @@
 // render.js -- draws the camera frame with run shading (WebGL) and the line
 // work on top of it (2D canvas): ridges, lifts, run centerlines, labels.
 
-import { TAU, panoLook, panoVisible, panoCol } from './terrain.js?v=1115.2129-e2ef7b8';
-import { CLASS_TINT, CLASS_COLOR, slopeColor } from './runs.js?v=1115.2129-e2ef7b8';
+import { TAU, panoLook, panoVisible, panoCol } from './terrain.js?v=1117.0047-f8a762f';
+import { CLASS_TINT, CLASS_COLOR, slopeColor } from './runs.js?v=1117.0047-f8a762f';
 
 const VS = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
 // Per pixel: undistort, rotate into the world, look the direction up in the
