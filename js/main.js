@@ -1,20 +1,20 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, D2R } from './terrain.js?v=1117.2337-974109f';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1117.2337-974109f';
-import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1117.2337-974109f';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1117.2337-974109f';
-import { renderSim } from './sim.js?v=1117.2337-974109f';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1117.2337-974109f';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1117.2337-974109f';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1117.2337-974109f';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1117.2337-974109f';
-import { pickOnMap } from './mappick.js?v=1117.2337-974109f';
-import { parseExif } from './exif.js?v=1117.2337-974109f';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1117.2337-974109f';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1117.2337-974109f';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1117.2337-974109f';
+import { buildPano, chainCrests, D2R } from './terrain.js?v=1118.0227-f84010f';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1118.0227-f84010f';
+import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.0227-f84010f';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.0227-f84010f';
+import { renderSim } from './sim.js?v=1118.0227-f84010f';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.0227-f84010f';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.0227-f84010f';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.0227-f84010f';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.0227-f84010f';
+import { pickOnMap } from './mappick.js?v=1118.0227-f84010f';
+import { parseExif } from './exif.js?v=1118.0227-f84010f';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.0227-f84010f';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.0227-f84010f';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.0227-f84010f';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -550,10 +550,14 @@ async function pickPhotoSpot(start) {
   $('sheet').hidden = true;
   const o = start?.lat != null ? start : S.origin;
   if (!o) return;
-  $('pickHint').textContent = 'Tap where the photo was taken. Drag to move the map, pinch to zoom.'
+  $('pickHint').textContent = 'Tap where the photo was taken. Drag to move, pinch to zoom, twist to turn.'
     + (S.photoFix ? ' The yellow circle is where the photo\'s own GPS put it.' : '');
-  const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.photoFix && { ...S.photoFix, acc: S.photoFix.acc ?? PHOTO_ACC_UNKNOWN });
-  if (!got || S.mode !== 'photo') return;
+  // Once the skyline has been matched, show the view it found: every spot along
+  // its center line sees the far ridges the same way, so that is where to slide.
+  const view = S.locked && S.origin ? { lat: S.origin.lat, lon: S.origin.lon, yaw: yprFromRot(S.cam.R).yaw, hfov: S.cam.hfov } : null;
+  if (view) $('pickHint').textContent += ' The white wedge is the view matched to the skyline: spots along its dashed line keep the ridges lined up, and a tap near the line lands on it.';
+  const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.photoFix && { ...S.photoFix, acc: S.photoFix.acc ?? PHOTO_ACC_UNKNOWN }, view);
+  if (!got || got === 'photo' || S.mode !== 'photo') return;   // 'photo': the library is open for another one
   S.photoAcc = got.acc;
   S.photoHasCompass = false;
   resetAlignment();

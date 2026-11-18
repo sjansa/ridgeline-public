@@ -151,10 +151,19 @@
   /* Map picker: where was the photo taken? */
   #picker { position: fixed; inset: 0; background: var(--ink); z-index: 10; }
   #picker canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
-  #picker .chip { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); top: calc(var(--st) + 10px); border-radius: 14px; font: 500 13px/1.35 var(--body); letter-spacing: 0; }
-  #picker .two { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); bottom: calc(var(--sb) + 44px); max-width: 420px; margin: 0 auto; }
-  #picker .btn { box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+  #picker .chip { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 68px); top: calc(var(--st) + 10px); border-radius: 14px; font: 500 13px/1.35 var(--body); letter-spacing: 0; }
+  #picker .acts { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); bottom: calc(var(--sb) + 30px); max-width: 480px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; }
+  #picker .btn { box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); display: grid; place-items: center; text-align: center; padding: 8px 6px; }
   #picker .btn:not(.go) { background: #1d2c35; }
+  #picker .round { position: absolute; right: calc(var(--sr) + 10px); width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line); color: var(--text); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 0; }
+  #pickType { top: calc(var(--st) + 10px); }
+  #pickNorth { top: calc(var(--st) + 66px); }
+  #picker .round svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+  #pickNorth .needle-n { fill: #ff5a4a; stroke: none; } #pickNorth .needle-s { fill: currentColor; stroke: none; opacity: .75; }
+  #pickTypes { position: absolute; right: calc(var(--sr) + 66px); top: calc(var(--st) + 10px); display: grid; gap: 2px; padding: 5px; min-width: 170px; background: rgba(13, 28, 37, 0.92); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
+  #pickTypes button { background: none; text-align: left; min-height: 44px; padding: 0 12px; border-radius: 10px; font: 500 15px var(--body); }
+  #pickTypes button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.14); color: var(--go); font-weight: 600; }
+  #pickCredit { position: absolute; right: calc(var(--sr) + 6px); bottom: calc(var(--sb) + 6px); padding: 2px 6px; border-radius: 6px; background: rgba(12, 20, 27, 0.6); color: #dfe8ed; font: 500 10px/1.3 var(--body); pointer-events: none; }
 </style>
 </head>
 <body>
@@ -165,7 +174,7 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1117.2337-974109f</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1118.0227-f84010f</span></div>
 </div>
 
 <div id="legend" hidden>
@@ -309,9 +318,9 @@
       <p>The app does not know which runs or lifts are open, where the ski-area boundary is, or anything about snow, weather, avalanche danger, cliffs or other hazards. Always obey signs, ropes, closures and ski patrol, and use the resort's official trail map. Terrain marked as backcountry is not patrolled or controlled.</p>
       <p>Do not use your phone while skiing or riding. Stop in a safe place, out of the way of others, before looking at the screen.</p>
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
-      <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
+      <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. The map for setting a photo's spot loads satellite or topographic pictures of the area on screen from Esri or OpenTopoMap. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1117.2337-974109f</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1118.0227-f84010f</span></p>
     </details>
   </div>
 </div>
@@ -319,7 +328,11 @@
 <div id="picker" hidden>
   <canvas></canvas>
   <div class="chip" id="pickHint"></div>
-  <div class="two"><button class="btn" id="pickCancel">Cancel</button><button class="btn go" id="pickOk">Use this spot</button></div>
+  <button class="round" id="pickType" aria-label="Map type"><svg viewBox="0 0 24 24" style="width:22px;height:22px;stroke-width:1.8"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5" opacity=".75"/><path d="M3 16.5L12 21l9-4.5" opacity=".5"/></svg></button>
+  <div id="pickTypes" role="group" aria-label="Map type" hidden></div>
+  <button class="round" id="pickNorth" aria-label="Turn the map north up"><svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="11.5"/><path class="needle-n" d="M14 4.5l3 9.5h-6z"/><path class="needle-s" d="M14 23.5l-3-9.5h6z"/></svg></button>
+  <div class="acts"><button class="btn" id="pickCancel">Cancel</button><label class="btn" id="pickPhoto" for="file">Other photo</label><button class="btn go" id="pickOk">Use this spot</button></div>
+  <div id="pickCredit"></div>
 </div>
 <button id="getHere" class="btn" hidden>Download a map for here</button>
 <div id="zoom" role="group" aria-label="Camera zoom" hidden></div>
@@ -350,10 +363,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1117.2337-974109f</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1118.0227-f84010f</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1117.2337-974109f"></script>
+<script type="module" src="js/main.js?v=1118.0227-f84010f"></script>
 </body>
 </html>
