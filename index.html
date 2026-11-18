@@ -178,7 +178,7 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1118.0301-1e40894</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1118.0316-99354b6</span></div>
 </div>
 
 <div id="legend" hidden>
@@ -293,12 +293,13 @@
     <p class="legend">Line the overlay up by hand: drag to slide it, twist two fingers to roll it, pinch to zoom it. With a mouse, Shift-drag rolls and the wheel zooms. In camera mode a pinch (or the zoom buttons) zooms the camera and the overlay follows; choose another lens under Menu &gt; View. (In the demo a drag looks around and a pinch zooms the photo.) Green circle, blue square and black diamond follow North American trail ratings; with run lines on, black runs are drawn in red and lifts in purple.</p>
     <div class="row" id="fb">
       <b>Beta feedback</b>
-      <label for="fbNotes">Found a problem? Take a screenshot of it, then describe it here and email it to the developer.</label>
+      <label for="fbNotes">Found a problem? Describe it here, add a live snapshot of what is on screen (or screenshots from your photos), and email it to the developer.</label>
       <textarea id="fbNotes" rows="4" maxlength="4000" placeholder="What happened, and what you expected"></textarea>
       <div id="fbShots" aria-label="Screenshots to send"></div>
-      <div class="two"><button class="btn" id="fbAdd">Add screenshots</button><button class="btn go" id="fbSend">Email feedback</button></div>
+      <div class="two"><button class="btn" id="fbSnap">Live snapshot</button><button class="btn" id="fbAdd">Add screenshots</button></div>
+      <button class="btn go" id="fbSend">Email feedback</button>
       <p class="legend" id="fbMsg" role="status"></p>
-      <p class="legend">Opens a new message in your mail app for you to send. It includes the readout below, with your position if the app has one, so the problem can be reproduced; you can delete that from the message.</p>
+      <p class="legend">Opens a new message in your mail app for you to send. It includes the readout below, with your position if the app has one, so the problem can be reproduced; you can delete that from the message. A live snapshot captures the view without this menu, the plain picture behind it, and the app's settings and readings at that moment.</p>
     </div>
     <div id="debug"></div>
     <button class="btn" id="rec">Record sensors (12 s)</button>
@@ -324,7 +325,7 @@
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
       <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. The map for setting a photo's spot loads satellite or topographic pictures of the area on screen from Esri or OpenTopoMap. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1118.0301-1e40894</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1118.0316-99354b6</span></p>
     </details>
   </div>
 </div>
@@ -368,10 +369,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1118.0301-1e40894</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1118.0316-99354b6</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1118.0301-1e40894"></script>
+<script type="module" src="js/main.js?v=1118.0316-99354b6"></script>
 </body>
 </html>

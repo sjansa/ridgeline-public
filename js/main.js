@@ -1,21 +1,21 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1118.0301-1e40894';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1118.0301-1e40894';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.0301-1e40894';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.0301-1e40894';
-import { renderSim } from './sim.js?v=1118.0301-1e40894';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.0301-1e40894';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.0301-1e40894';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.0301-1e40894';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.0301-1e40894';
-import { pickOnMap } from './mappick.js?v=1118.0301-1e40894';
-import { relocate } from './relocate.js?v=1118.0301-1e40894';
-import { parseExif } from './exif.js?v=1118.0301-1e40894';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.0301-1e40894';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.0301-1e40894';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.0301-1e40894';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1118.0316-99354b6';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1118.0316-99354b6';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.0316-99354b6';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.0316-99354b6';
+import { renderSim } from './sim.js?v=1118.0316-99354b6';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.0316-99354b6';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.0316-99354b6';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.0316-99354b6';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.0316-99354b6';
+import { pickOnMap } from './mappick.js?v=1118.0316-99354b6';
+import { relocate } from './relocate.js?v=1118.0316-99354b6';
+import { parseExif } from './exif.js?v=1118.0316-99354b6';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.0316-99354b6';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.0316-99354b6';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.0316-99354b6';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -770,6 +770,8 @@ function tick(now) {
   if (S.scene) drawOverlay(octx, S.scene, S.cam, v, S.opts);
   else octx.clearRect(0, 0, v.sw, v.sh);
   if (S.mode === 'photo' && S.pano && (S.anchors?.length || S.grab)) drawAnchors();
+  // A snapshot has to be read in the same frame it was drawn: WebGL clears its canvas after.
+  if (snapWant) { const f = snapWant; snapWant = null; f(captureView()); }
   const fixOff = S.mode !== 'photo' || !S.scene;
   if (fixBar.hidden !== fixOff) fixBar.hidden = fixOff;
   // a photo does not move: once it has settled, further solves can only disturb it
@@ -791,9 +793,80 @@ function debug() {
   ].filter(Boolean).join('\n');
 }
 
+// ------------------------------------------------- feedback: live snapshot
+
+let snapWant = null;
+const SNAP_MAX = 2000;        // pixels on the long side of a snapshot picture
+
+/** Everything worth knowing to reproduce what is on screen, as plain data. */
+function telemetry() {
+  const r = (v, k = 5) => (typeof v === 'number' && isFinite(v) ? +v.toFixed(k) : v ?? null);
+  const ypr = R => { const y = yprFromRot(R); return { yaw: r(y.yaw, 2), pitch: r(y.pitch, 2), roll: r(y.roll, 2) }; };
+  const [vw, vh] = S.source ? sourceSize() : [0, 0], sol = S.lastSol, a = S.area;
+  return {
+    time: new Date().toISOString(), version: document.querySelector('.ver')?.textContent || 'dev',
+    mode: S.mode, area: a ? { id: a.id, name: a.name } : null, status: $('statText').textContent,
+    screen: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio, orientation: screen.orientation?.type || null },
+    view: { sw: S.view.sw, sh: S.view.sh, fw: r(S.view.fw, 1), fh: r(S.view.fh, 1) }, source: { w: vw, h: vh }, softZoom: S.softZoom,
+    camera: { ...ypr(S.cam.R), hfov: r(S.cam.hfov, 3), fn: r(S.cam.fn, 5), k1: r(S.cam.k1, 5), R: S.cam.R.map(v => r(v, 6)) },
+    sensors: { ...ypr(S.sensorR || IDENT), yawCorr: r(S.yawCorr, 3), camCorr: S.camCorr.map(v => r(v, 6)),
+      compass: orient.raw ? { heading: r(orient.raw.heading, 1), firm: orient.raw.firm, alpha: r(orient.raw.alpha, 1), beta: r(orient.raw.beta, 1), gamma: r(orient.raw.gamma, 1) } : null,
+      offset: r(orient.offset, 2), declination: orient.declination },
+    lens: { label: S.camera.label, mult: S.camera.mult, zoom: r(S.camera.zoomValue, 3), known: S.lensKnown, solveLens: S.lens },
+    align: { auto: S.auto, locked: S.locked, settled: S.settled, misses: S.misses,
+      last: sol ? { ok: sol.ok, sky: r(sol.sky, 3), crest: r(sol.crest, 3), confidence: r(sol.confidence, 3), inliers: r(sol.inliers, 3), solid: r(sol.solid, 3), contrast: r(sol.contrast, 1), ms: r(S.solveMs, 0) } : null },
+    position: {
+      origin: S.origin ? { lat: r(S.origin.lat, 6), lon: r(S.origin.lon, 6) } : null,
+      ground: S.pano ? r(S.pano.z0, 1) : null, eye: S.pano ? r(S.pano.hEye, 1) : null, chair: S.chair,
+      gps: S.gps ? { lat: r(S.gps.lat, 6), lon: r(S.gps.lon, 6), acc: r(S.gps.acc, 1), alt: r(S.gps.alt, 1) } : null,
+    },
+    photo: S.mode === 'photo' ? { fix: S.photoFix, acc: S.photoAcc, up: S.photoUp, compass: S.photoHasCompass, note: S.photoNote,
+      pins: (S.anchors || []).map(p => ({ name: p.name, lat: r(p.lat, 6), lon: r(p.lon, 6), z: r(p.z, 1), u: r(p.u, 4), v: r(p.v, 4) })) } : null,
+    layers: S.opts, scene: S.scene ? { lifts: S.scene.lifts.length, runs: S.scene.runs.length, peaks: S.scene.peaks.length, liftAcc: S.scene.acc } : null,
+    build: { ms: r(S.buildMs, 0) }, ua: navigator.userAgent,
+  };
+}
+
+/** Draw the view as it is now, picture and overlay, without any of the controls. Call from tick only. */
+function captureView() {
+  // the part of the screen the picture covers (a letterboxed photo leaves bars)
+  const v = S.view, x0 = Math.max(0, Math.round((v.sw - v.fw) / 2)), y0 = Math.max(0, Math.round((v.sh - v.fh) / 2));
+  const cw = Math.min(glCanvas.width, glCanvas.width - 2 * x0) || glCanvas.width, ch = Math.min(glCanvas.height, glCanvas.height - 2 * y0) || glCanvas.height;
+  const k = Math.min(1, SNAP_MAX / Math.max(cw, ch));
+  const c = document.createElement('canvas');
+  c.width = Math.round(cw * k); c.height = Math.round(ch * k);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(glCanvas, x0, y0, cw, ch, 0, 0, c.width, c.height);
+  ctx.drawImage(ovCanvas, x0, y0, cw, ch, 0, 0, c.width, c.height);
+  // a caption with the essentials, in case the text of the message goes missing
+  const t = telemetry(), cam = t.camera, pos = t.position.origin;
+  const lines = [
+    `${t.version}  ${t.mode}  ${t.area?.name || ''}  ${t.time.slice(0, 19).replace('T', ' ')}Z`,
+    `heading ${cam.yaw}°  pitch ${cam.pitch}°  roll ${cam.roll}°  fov ${cam.hfov}°  k1 ${cam.k1}`,
+    `${pos ? `spot ${pos.lat}, ${pos.lon}` : 'no spot'}  eye ${t.position.eye ?? '?'} m${t.position.gps ? `  gps ±${Math.round(t.position.gps.acc)} m` : ''}`,
+    t.status,
+  ];
+  const fs = Math.max(11, Math.round(c.width / 46));
+  ctx.font = `500 ${fs}px ui-monospace, Menlo, monospace`;
+  const lh = fs * 1.3, hgt = lines.length * lh + fs * 0.8;
+  ctx.fillStyle = 'rgba(8,16,22,0.72)'; ctx.fillRect(0, c.height - hgt, c.width, hgt);
+  ctx.fillStyle = '#e8f0f4'; ctx.textBaseline = 'top';
+  lines.forEach((l, i) => ctx.fillText(l, fs * 0.5, c.height - hgt + fs * 0.4 + i * lh, c.width - fs));
+  // and the picture the overlay was matched against, with nothing drawn on it
+  let raw = null;
+  if (S.source) {
+    const [w, h] = sourceSize(), q = Math.min(1, SNAP_MAX / Math.max(w, h));
+    raw = document.createElement('canvas'); raw.width = Math.round(w * q); raw.height = Math.round(h * q);
+    try { raw.getContext('2d').drawImage(S.source, 0, 0, raw.width, raw.height); } catch { raw = null; }
+  }
+  return { view: c, raw, telemetry: t };
+}
+
+const toJpeg = c => new Promise(done => c.toBlob(done, 'image/jpeg', 0.88));
+
 // Beta feedback: notes and screenshots, opened as a new message in the phone's mail app.
 function wireFeedback() {
-  const notes = $('fbNotes'), box = $('fbShots'), msg = $('fbMsg'), shots = [];
+  const notes = $('fbNotes'), box = $('fbShots'), msg = $('fbMsg'), shots = [], snaps = [];
   const say = (text, cls = '') => { msg.textContent = text; msg.className = `legend ${cls}`; };
   try { notes.value = localStorage.getItem('fbNotes') || ''; } catch { /* no saved draft */ }
   notes.oninput = () => { try { localStorage.setItem('fbNotes', notes.value); } catch { /* draft not kept */ } };
@@ -807,13 +880,31 @@ function wireFeedback() {
       box.append(b);
     });
     $('fbAdd').disabled = shots.length >= MAX_SHOTS;
+    $('fbSnap').disabled = shots.length > MAX_SHOTS - 2 || !S.source;
   };
   const clear = () => {
     for (const s of shots) URL.revokeObjectURL(s.url);
-    shots.length = 0; notes.value = ''; draw();
+    shots.length = 0; snaps.length = 0; notes.value = ''; draw();
     try { localStorage.removeItem('fbNotes'); } catch { /* nothing kept */ }
   };
   $('fbAdd').onclick = () => $('fbFile').click();
+  $('fbSnap').onclick = async () => {
+    if (!S.source) { say('Nothing on screen to capture yet.', 'bad'); return; }
+    if (shots.length > MAX_SHOTS - 2) { say(`Up to ${MAX_SHOTS} pictures per message.`, 'bad'); return; }
+    $('fbSnap').disabled = true;
+    try {
+      const got = await new Promise((done, fail) => { snapWant = done; setTimeout(() => { if (snapWant === done) { snapWant = null; fail(new Error('the view is not drawing')); } }, 1500); });
+      const n = snaps.length + 1;
+      snaps.push(got.telemetry);
+      for (const c of [got.view, got.raw]) {
+        if (!c) continue;
+        const blob = await toJpeg(c);
+        if (blob) shots.push({ blob, url: URL.createObjectURL(blob), snap: n });
+      }
+      say(`Snapshot ${n} added: the view without the menu, the plain ${S.mode === 'photo' ? 'photo' : 'camera frame'}, and the app's settings and readings.`, 'ok');
+    } catch (e) { say(`Could not capture the view: ${e.message || e}`, 'bad'); }
+    draw();
+  };
   $('fbFile').onchange = async e => {
     const files = [...e.target.files]; e.target.value = '';
     const room = MAX_SHOTS - shots.length;
@@ -825,14 +916,18 @@ function wireFeedback() {
     say(bad ? `${bad} picture${bad > 1 ? 's' : ''} could not be read.` : files.length > room ? `Up to ${MAX_SHOTS} screenshots per message.` : '', bad ? 'bad' : '');
   };
   $('fbSend').onclick = async () => {
-    if (!notes.value.trim() && !shots.length) { say('Add a note or a screenshot first.', 'bad'); notes.focus(); return; }
+    if (!notes.value.trim() && !shots.length) { say('Add a note, a snapshot or a screenshot first.', 'bad'); notes.focus(); return; }
     debug();
+    const kept = new Set(shots.map(s => s.snap).filter(Boolean));
     const a = S.area, details = [
       `version ${document.querySelector('.ver')?.textContent}`,
       `mode ${S.mode || 'none'}  area ${a?.name || a?.id || 'none'}  screen ${innerWidth}x${innerHeight} @${devicePixelRatio}`,
       `status: ${$('statText').textContent}`,
       $('debug').textContent,
       navigator.userAgent,
+      // full readings, as data: one line per snapshot taken, then the state at sending
+      ...snaps.map((t, i) => (kept.has(i + 1) ? `snapshot ${i + 1}: ${JSON.stringify(t)}` : '')),
+      `at send: ${JSON.stringify(telemetry())}`,
     ].filter(Boolean).join('\n');
     $('fbSend').disabled = true; say('Opening your mail app…');
     try {

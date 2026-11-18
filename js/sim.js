@@ -5,7 +5,7 @@
 // The run width here is deliberately narrower than the ownership reach, so the
 // overlay has to find the real edge from the picture, as it must on the hill.
 
-import { TAU, R2D, enuToLat, enuToLon, panoCol, PANO_T_MAX, gridBilinear } from './terrain.js?v=1118.0301-1e40894';
+import { TAU, R2D, enuToLat, enuToLon, panoCol, PANO_T_MAX, gridBilinear } from './terrain.js?v=1118.0316-99354b6';
 
 const SUN = (() => { const az = 150 / R2D, el = 32 / R2D; return [Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el)]; })();
 const TREELINE = 3180, RUN_HALF_WIDTH = 24;

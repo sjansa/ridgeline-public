@@ -7,7 +7,7 @@
 // on the terrain feature between them. The camera then trims the result to
 // actual snow (see render.js), which is what bounds a run cut through trees.
 
-import { Grid, Terrain } from './terrain.js?v=1118.0301-1e40894';
+import { Grid, Terrain } from './terrain.js?v=1118.0316-99354b6';
 
 export const DIFFICULTY = {
   novice: 1, easy: 1, intermediate: 2, advanced: 3, expert: 4, freeride: 4, extreme: 4, unknown: 5,
