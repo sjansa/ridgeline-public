@@ -7,7 +7,7 @@
 // on the terrain feature between them. The camera then trims the result to
 // actual snow (see render.js), which is what bounds a run cut through trees.
 
-import { Grid, Terrain } from './terrain.js?v=1117.0047-f8a762f';
+import { Grid, Terrain } from './terrain.js?v=1117.2337-974109f';
 
 export const DIFFICULTY = {
   novice: 1, easy: 1, intermediate: 2, advanced: 3, expert: 4, freeride: 4, extreme: 4, unknown: 5,
@@ -22,7 +22,15 @@ export const MAX_REACH = 150;       // cost-meters a centerline may claim sidewa
 // traverse across a bowl) wins a corridor about this wide either side instead
 // of a one-cell thread.
 const AREA_COST = 30;
-const LIFT_CLEARANCE = 7;           // cable height above ground, meters
+// Lift cables. OSM maps an aerial lift as its stations and towers, so the cable
+// is drawn as straight spans between those points with a little sag, not laid
+// over the terrain: a tram's span can pass 100 m above a gully. Heights are
+// typical figures in meters: [tower top, station, least clearance mid-span].
+const CABLE_HEIGHT = {
+  cable_car: [18, 8, 6], gondola: [12, 6, 5], mixed_lift: [12, 6, 5], chair_lift: [10, 5, 4],
+  drag_lift: [3, 3, 2], 't-bar': [3, 3, 2], 'j-bar': [3, 3, 2], platter: [3, 3, 2], rope_tow: [1, 1, 1], magic_carpet: [0.5, 0.5, 0.5],
+};
+const CABLE_SAG = 0.025;            // mid-span sag as a fraction of span length
 
 /** Fetch a pack directory -> {meta, terrain, features}. */
 export async function loadPack(base, fetchBin, fetchJson) {
@@ -54,12 +62,11 @@ export function densify(pts, maxM = 15) {
 
 /**
  * Prepare lifts, runs and peaks for projection: densified geometry with
- * elevations. Lifts ride a straight-ish cable above the ground.
+ * elevations. Lifts hang between their towers (see cable).
  */
 export function prepareFeatures(features, terrain) {
   const lifts = features.lifts.map((l, i) => {
-    const pts = densify(l.pts, 25);
-    const z = pts.map(p => terrain.elev(p[1], p[0]) + LIFT_CLEARANCE);
+    const { pts, z } = cable(l.pts, l.type, terrain);
     return { kind: 'lift', index: i, name: l.name || '', type: l.type, pts, z };
   }).filter(l => l.pts.length > 1 && l.z.every(v => v === v));
   const runs = features.runs.map((r, i) => {
@@ -72,6 +79,30 @@ export function prepareFeatures(features, terrain) {
   });
   const peaks = (features.peaks || []).map(p => ({ ...p }));
   return { lifts, runs, peaks };
+}
+
+/**
+ * A lift's cable: spans between its mapped stations and towers, sagging a
+ * little, never closer to the ground than the least clearance. -> {pts, z}
+ */
+export function cable(supports, type, terrain, stepM = 25) {
+  const [tower, station, clear] = CABLE_HEIGHT[type] || CABLE_HEIGHT.chair_lift;
+  const n = supports.length, top = supports.map((p, i) => terrain.elev(p[1], p[0]) + (i === 0 || i === n - 1 ? station : tower));
+  const pts = [], z = [];
+  for (let i = 0; i < n; i++) {
+    if (i > 0) {
+      const a = supports[i - 1], b = supports[i];
+      const L = Math.hypot((b[0] - a[0]) * 110540, (b[1] - a[1]) * 111320 * Math.cos(b[0] * Math.PI / 180));
+      const m = Math.ceil(L / stepM);
+      for (let k = 1; k < m; k++) {
+        const f = k / m, p = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+        const zc = top[i - 1] + (top[i] - top[i - 1]) * f - 4 * CABLE_SAG * L * f * (1 - f);
+        pts.push(p); z.push(Math.max(zc, terrain.elev(p[1], p[0]) + clear));
+      }
+    }
+    pts.push(supports[i]); z.push(top[i]);
+  }
+  return { pts, z };
 }
 
 /** Slope angle in whole degrees for every cell of a grid. */

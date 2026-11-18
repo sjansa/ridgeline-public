@@ -147,6 +147,14 @@
   #start #a2hs svg { display: inline; width: 18px; height: 18px; vertical-align: -3px; fill: none; stroke: var(--go); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   #startErr { color: #ffb4ad; min-height: 1.4em; }
   @media (orientation: landscape) and (max-height: 520px) { #start svg { display: none; } }
+
+  /* Map picker: where was the photo taken? */
+  #picker { position: fixed; inset: 0; background: var(--ink); z-index: 10; }
+  #picker canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  #picker .chip { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); top: calc(var(--st) + 10px); border-radius: 14px; font: 500 13px/1.35 var(--body); letter-spacing: 0; }
+  #picker .two { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); bottom: calc(var(--sb) + 44px); max-width: 420px; margin: 0 auto; }
+  #picker .btn { box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+  #picker .btn:not(.go) { background: #1d2c35; }
 </style>
 </head>
 <body>
@@ -157,7 +165,7 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1117.0047-f8a762f</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1117.2337-974109f</span></div>
 </div>
 
 <div id="legend" hidden>
@@ -218,6 +226,10 @@
       <label for="spot">Stand at</label>
       <select id="spot"></select>
     </div>
+    <div class="row" id="photoPosRow" hidden>
+      <label>Photo taken at <span id="photoPosVal"></span></label>
+      <button class="btn" id="photoPick">Set the spot on the map…</button>
+    </div>
     <div class="row" id="lensRow" hidden>
       <label for="lens">Camera lens</label>
       <select id="lens"></select>
@@ -236,7 +248,7 @@
     <div id="areas"></div>
     <button class="btn" id="addArea">Add a map area…</button>
     <div id="addForm" hidden>
-      <p class="legend">Search for a place, or use where you are now. Needs a connection.</p>
+      <p class="legend">Search for a place, or use your current location. Needs a connection.</p>
       <div class="row">
         <label for="addPlace">Place</label>
         <input id="addPlace" type="search" placeholder="Ski area or town" autocomplete="off">
@@ -245,7 +257,7 @@
         <label for="addSize">Size</label>
         <select id="addSize"><option value="8">8 × 8 km</option><option value="14" selected>14 × 14 km</option><option value="20">20 × 20 km</option></select>
       </div>
-      <div class="two"><button class="btn" id="addFind">Find place</button><button class="btn" id="addHere">Around me</button></div>
+      <div class="two"><button class="btn" id="addFind">Find place</button><button class="btn" id="addHere">Current location</button></div>
     </div>
     <div id="addConfirm" hidden>
       <p class="legend" id="addWhat"></p>
@@ -299,11 +311,16 @@
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
       <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1117.0047-f8a762f</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1117.2337-974109f</span></p>
     </details>
   </div>
 </div>
 
+<div id="picker" hidden>
+  <canvas></canvas>
+  <div class="chip" id="pickHint"></div>
+  <div class="two"><button class="btn" id="pickCancel">Cancel</button><button class="btn go" id="pickOk">Use this spot</button></div>
+</div>
 <button id="getHere" class="btn" hidden>Download a map for here</button>
 <div id="zoom" role="group" aria-label="Camera zoom" hidden></div>
 <div id="credit" hidden></div>
@@ -333,10 +350,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1117.0047-f8a762f</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1117.2337-974109f</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1117.0047-f8a762f"></script>
+<script type="module" src="js/main.js?v=1117.2337-974109f"></script>
 </body>
 </html>

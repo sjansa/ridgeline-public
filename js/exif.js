@@ -27,6 +27,7 @@ const TAG = {
   GPS_ALT: 0x0006,
   GPS_DIR_REF: 0x0010,
   GPS_DIR: 0x0011,
+  GPS_H_ERROR: 0x001f,
 };
 
 /**
@@ -38,6 +39,7 @@ const TAG = {
  *   alt: number|null,        // meters (negative if GPSAltitudeRef == 1)
  *   direction: number|null,  // GPSImgDirection in degrees 0..360 (as stored; see directionRef)
  *   directionRef: 'T'|'M'|null, // GPSImgDirectionRef: true or magnetic north
+ *   hError: number|null,     // GPSHPositioningError: horizontal position error, meters
  *   focalLength: number|null,   // mm (tag 0x920A)
  *   focal35: number|null,       // FocalLengthIn35mmFilm (tag 0xA405), null if 0/absent
  *   digitalZoom: number|null,   // DigitalZoomRatio (tag 0xA404)
@@ -118,6 +120,7 @@ function parseTiff(dv, tb, limit) {
     alt: alt === null ? null : altRef === 1 ? -alt : alt,
     direction: first(readNumbers(t, gps, TAG.GPS_DIR)),
     directionRef: dirRef === 'T' || dirRef === 'M' ? dirRef : null,
+    hError: first(readNumbers(t, gps, TAG.GPS_H_ERROR)),
     focalLength: first(readNumbers(t, exif, TAG.FOCAL_LENGTH)),
     focal35: f35 || null,
     digitalZoom: first(readNumbers(t, exif, TAG.DIGITAL_ZOOM)),

@@ -1,8 +1,8 @@
 // render.js -- draws the camera frame with run shading (WebGL) and the line
 // work on top of it (2D canvas): ridges, lifts, run centerlines, labels.
 
-import { TAU, panoLook, panoVisible, panoCol } from './terrain.js?v=1117.0047-f8a762f';
-import { CLASS_TINT, CLASS_COLOR, slopeColor } from './runs.js?v=1117.0047-f8a762f';
+import { TAU, panoLook, panoVisible, panoCol, localFrame } from './terrain.js?v=1117.2337-974109f';
+import { CLASS_TINT, CLASS_COLOR, slopeColor } from './runs.js?v=1117.2337-974109f';
 
 const VS = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
 // Per pixel: undistort, rotate into the world, look the direction up in the
@@ -215,6 +215,10 @@ export function buildScene(pano, chains, prep) {
     return any ? { f, dirs, vis, near } : null;
   };
   const lifts = prep.lifts.map(l => feature(l, 12000)).filter(Boolean);
+  for (const l of lifts) {
+    l.dist = new Float32Array(l.vis.length); l.ok = new Uint8Array(l.vis.length);
+    l.f.pts.forEach((p, i) => { panoLook(pano, p[0], p[1], l.f.z[i], look); l.dist[i] = look.d; });
+  }
   const runs = prep.runs.filter(r => !r.area).map(r => feature(r, 8000)).filter(Boolean);
   const peaks = [];
   for (const p of prep.peaks) {
@@ -235,7 +239,27 @@ export function buildScene(pano, chains, prep) {
     for (let i = 0; i < ch.cols.length; i++) { dirOf(ch.cols[i] * TAU / pano.na, ch.t[i], dirs, i * 3); d += ch.d[i]; }
     return { dirs, d: d / ch.cols.length, cols: ch.cols };
   });
-  return { lifts, runs, peaks, sky, ridges, na: pano.na };
+  return { lifts, runs, peaks, sky, ridges, na: pano.na, acc: 0 };
+}
+
+// A lift nearer than this many GPS errors could be anywhere in the picture: leave it out.
+const LIFT_MIN_ACC_RATIO = 3;
+
+/**
+ * Re-aim the lifts from where the viewer is now. They are the nearest things
+ * drawn, so a few meters of walking moves them visibly while the terrain
+ * (rebuilt only after a larger move) stays put. Visibility is kept from the
+ * last terrain build. acc: GPS error in meters, 0 when the position is exact.
+ */
+export function aimLifts(scene, lat, lon, hEye, acc = 0) {
+  const p = { frame: localFrame(lat, lon), hEye }, look = {};
+  for (const l of scene.lifts) {
+    l.f.pts.forEach((q, i) => {
+      panoLook(p, q[0], q[1], l.f.z[i], look);
+      dirOf(look.az, look.t, l.dirs, i * 3); l.dist[i] = look.d;
+    });
+  }
+  scene.acc = acc;
 }
 
 // Run lines: green and blue as rated; black and double black in red so they show on snow and trees.
@@ -380,14 +404,15 @@ export function drawOverlay(ctx, scene, cam, view, o) {
   }
   if (o.lifts) {
     for (const l of scene.lifts) {
+      for (let i = 0; i < l.ok.length; i++) l.ok[i] = l.vis[i] && l.dist[i] > LIFT_MIN_ACC_RATIO * scene.acc ? 1 : 0;
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4.6 * s;
-      stroke(l.dirs, l.vis.length, l.vis);
+      stroke(l.dirs, l.ok.length, l.ok);
       const liftColor = LIFT_COLOR;
       ctx.strokeStyle = liftColor; ctx.lineWidth = 2.6 * s;
-      const st = stroke(l.dirs, l.vis.length, l.vis);
+      const st = stroke(l.dirs, l.ok.length, l.ok);
       // stations
-      for (const i of [0, l.vis.length - 1]) {
-        if (l.vis[i] && P(l.dirs, i * 3) && inView(0)) {
+      for (const i of [0, l.ok.length - 1]) {
+        if (l.ok[i] && P(l.dirs, i * 3) && inView(0)) {
           ctx.fillStyle = liftColor; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * s;
           ctx.beginPath(); ctx.arc(pt[0], pt[1], 4.5 * s, 0, TAU); ctx.fill(); ctx.stroke();
         }

@@ -1,19 +1,20 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, D2R } from './terrain.js?v=1117.0047-f8a762f';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1117.0047-f8a762f';
-import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1117.0047-f8a762f';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1117.0047-f8a762f';
-import { renderSim } from './sim.js?v=1117.0047-f8a762f';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1117.0047-f8a762f';
-import { Shader, buildScene, drawOverlay } from './render.js?v=1117.0047-f8a762f';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1117.0047-f8a762f';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1117.0047-f8a762f';
-import { parseExif } from './exif.js?v=1117.0047-f8a762f';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1117.0047-f8a762f';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1117.0047-f8a762f';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1117.0047-f8a762f';
+import { buildPano, chainCrests, D2R } from './terrain.js?v=1117.2337-974109f';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1117.2337-974109f';
+import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1117.2337-974109f';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1117.2337-974109f';
+import { renderSim } from './sim.js?v=1117.2337-974109f';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1117.2337-974109f';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1117.2337-974109f';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1117.2337-974109f';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1117.2337-974109f';
+import { pickOnMap } from './mappick.js?v=1117.2337-974109f';
+import { parseExif } from './exif.js?v=1117.2337-974109f';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1117.2337-974109f';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1117.2337-974109f';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1117.2337-974109f';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -36,6 +37,8 @@ const SOFT_ZOOM_MAX = 5;             // on-screen zoom where the camera offers n
 const DEFAULT_HFOV = 64;      // phone main camera, video mode, along the long side of the frame
 const ZOOMS = [1, 0.6, 1.65]; // focal guesses tried while the lens is unknown: main, ultra-wide, tele
 const ANALYSIS_W = 320;
+const PHOTO_ACC_UNKNOWN = 10;  // meters: a photo's GPS fix when it does not say how good it is
+const PHOTO_ACC_POOR = 25;     // meters: worse than this, suggest setting the spot on the map
 
 const S = {
   mode: null, pack: null, prep: null, own: null,
@@ -218,7 +221,7 @@ async function findPlace() {
 function aroundMe() {
   const go = (lat, lon) => proposeArea(boxAround(lat, lon, +$('addSize').value), `Map at ${lat.toFixed(2)}, ${lon.toFixed(2)}`);
   if (S.gps) { go(S.gps.lat, S.gps.lon); return; }
-  $('addErr').textContent = 'Finding where you are…';
+  $('addErr').textContent = 'Finding your current location…';
   navigator.geolocation.getCurrentPosition(p => go(p.coords.latitude, p.coords.longitude),
     () => { $('addErr').textContent = 'Could not get your position. Search for the place instead.'; }, { enableHighAccuracy: true, timeout: 15000 });
 }
@@ -266,7 +269,7 @@ function setViewpoint(lat, lon) {
   if (!S.pack.terrain.fine.contains(lon, lat)) {
     // On the hill with a signal: offer to fetch a map for right here.
     const canGet = S.mode === 'live' && navigator.onLine !== false;
-    status(canGet ? 'No map on this phone for where you are.' : 'No map on this phone for where you are, and no connection to get one.', 'bad');
+    status(canGet ? 'No map on this phone for your current location.' : 'No map on this phone for your current location, and no connection to get one.', 'bad');
     $('getHere').hidden = !canGet;
     return;
   }
@@ -282,6 +285,8 @@ function setViewpoint(lat, lon) {
       const chains = chainCrests(pano);
       S.pano = pano; S.model = alignModel(pano, chains); S.scene = buildScene(pano, chains, S.prep);
       S.origin = { lat, lon };
+      if (S.mode === 'live' && S.gps) aimFromFix(S.gps);
+      else if (S.mode === 'photo') S.scene.acc = S.photoAcc || 0;
       shader?.setPano(pano, S.prep.runs);
       S.buildMs = performance.now() - t0;
       if (S.mode === 'demo' && S.demo.autoPitch) {
@@ -294,7 +299,9 @@ function setViewpoint(lat, lon) {
         S.demo.autoPitch = false;
       }
       S.demo.dirty = true; S.lastSolve = 0;
-      status(S.mode === 'demo' ? 'Demo view. Drag to look around.' : 'Looking for the skyline…');
+      status(S.mode === 'demo' ? 'Demo view. Drag to look around.'
+        : S.mode === 'photo' && S.photoAcc > PHOTO_ACC_POOR ? `Looking for the skyline… This photo's GPS is only good to ±${Math.round(S.photoAcc)} m: Menu > View sets the spot on a map.`
+          : 'Looking for the skyline…');
     } catch (e) { status(e.message, 'bad'); }
     S.building = false;
   }, 30);
@@ -432,6 +439,7 @@ async function setMode(mode) {
   $('statMode').textContent = { live: 'Camera', demo: 'Demo', photo: 'Photo' }[mode];
   for (const b of $('modes').children) b.setAttribute('aria-pressed', b.dataset.mode === mode);
   $('spotRow').hidden = mode === 'live';
+  $('photoPosRow').hidden = mode !== 'photo';
   $('getHere').hidden = true;
   if (mode !== 'live') { $('lensRow').hidden = true; S.softZoom = 1; }
   resetAlignment(); syncZoom();
@@ -479,6 +487,15 @@ function onFix(fix) {
   const moved = o ? Math.hypot((fix.lat - o.lat) * 110540, (fix.lon - o.lon) * 111320 * Math.cos(fix.lat * D2R)) : Infinity;
   // Rebuild once the move outgrows GPS noise; a few meters does not shift the picture.
   if (moved > Math.max(10, Math.min(fix.acc || 10, 40))) setViewpoint(fix.lat, fix.lon);
+  else aimFromFix(fix);
+}
+
+/** Lifts are close enough that every fix moves them: aim them from it (cheap), and drop the ones nearer than GPS can place. */
+function aimFromFix(fix) {
+  if (!S.scene || !(fix.lat === fix.lat)) return;
+  const z = S.pack.terrain.elev(fix.lon, fix.lat);
+  if (!(z === z)) return;
+  aimLifts(S.scene, fix.lat, fix.lon, z + (S.chair ? 9 : 1.7), fix.acc || 0);
 }
 
 async function loadPhoto(file) {
@@ -492,9 +509,16 @@ async function loadPhoto(file) {
   await setMode('photo');
   S.source = photoCanvas;
   const spot = S.spots[+$('spot').value] || S.spots[0];
-  let pos = spot.pos, yaw = spot.yaw, note = 'No GPS in this photo: using the spot chosen under Menu > View.';
-  if (exif?.lat != null && exif?.lon != null && S.pack.terrain.fine.contains(exif.lon, exif.lat)) {
-    pos = [exif.lat, exif.lon]; note = 'Photo location read from EXIF.';
+  const inMap = exif?.lat != null && exif?.lon != null && S.pack.terrain.fine.contains(exif.lon, exif.lat);
+  // The photo's own fix and how far off it may be (iPhones record that; 0 or
+  // missing means unknown, so assume a typical phone fix).
+  S.photoFix = inMap ? { lat: exif.lat, lon: exif.lon, acc: exif.hError > 0 ? exif.hError : null } : null;
+  let pos = spot.pos, yaw = spot.yaw, note = 'No GPS in this photo: tap where it was taken.';
+  S.photoAcc = 0;
+  if (inMap) {
+    pos = [exif.lat, exif.lon]; S.photoAcc = S.photoFix.acc ?? PHOTO_ACC_UNKNOWN;
+    note = S.photoFix.acc != null ? `Photo location read from EXIF (±${Math.round(S.photoFix.acc)} m).` : 'Photo location read from EXIF.';
+    if (S.photoAcc > PHOTO_ACC_POOR) note += ' That is rough: set the spot on the map under Menu > View.';
     yaw = exif.direction != null ? exif.direction + (exif.directionRef === 'M' ? orient.declination : 0) : 0;
   } else if (exif?.lat != null) note = 'This photo was taken outside the map: using the spot chosen under Menu > View.';
   // Focal length, digital zoom and any crop, from EXIF; the solver refines it.
@@ -502,12 +526,40 @@ async function loadPhoto(file) {
   S.cam.fn = lens.known ? lens.fn : Camera.hfovToFn(DEFAULT_HFOV) * Math.max(photoCanvas.width, photoCanvas.height) / photoCanvas.width;
   S.cam.k1 = 0; S.lensKnown = lens.known; S.photoZooms = lens.zooms;
   clampFn();
-  note += lens.known ? ` Lens: ${lens.why}.` : ' Lens unknown: trying wide, main and telephoto.';
-  S.photoHasCompass = exif?.direction != null && pos !== spot.pos;
+  S.photoLensNote = lens.known ? ` Lens: ${lens.why}.` : ' Lens unknown: trying wide, main and telephoto.';
+  note += S.photoLensNote;
+  S.photoHasCompass = exif?.direction != null && inMap;
   S.sensorR = rotFromYPR(yaw, 0, 0);
   syncFov();
   S.photoNote = note;
+  photoPosText(inMap ? 'GPS' : 'spot');
   setViewpoint(pos[0], pos[1]);
+  // No position at all: a spot from the list is surely wrong, so ask straight away.
+  if (exif?.lat == null) pickPhotoSpot({ lat: pos[0], lon: pos[1] });
+}
+
+function photoPosText(how) {
+  const f = S.photoFix;
+  $('photoPosVal').textContent = how === 'map' ? 'spot set on the map'
+    : how === 'GPS' ? `GPS${f?.acc != null ? ` ±${Math.round(f.acc)} m` : ''}` : 'no GPS: list spot';
+}
+
+/** Say where the photo was taken by tapping a map. The compass tag goes with a bad fix, so search every heading. */
+async function pickPhotoSpot(start) {
+  if (S.mode !== 'photo' || !S.pack) return;
+  $('sheet').hidden = true;
+  const o = start?.lat != null ? start : S.origin;
+  if (!o) return;
+  $('pickHint').textContent = 'Tap where the photo was taken. Drag to move the map, pinch to zoom.'
+    + (S.photoFix ? ' The yellow circle is where the photo\'s own GPS put it.' : '');
+  const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.photoFix && { ...S.photoFix, acc: S.photoFix.acc ?? PHOTO_ACC_UNKNOWN });
+  if (!got || S.mode !== 'photo') return;
+  S.photoAcc = got.acc;
+  S.photoHasCompass = false;
+  resetAlignment();
+  S.photoNote = `Spot set on the map (±${Math.round(got.acc)} m); searching every direction for the skyline.${S.photoLensNote || ''}`;
+  photoPosText('map');
+  setViewpoint(got.lat, got.lon);
 }
 
 // -------------------------------------------------------------- frame loop
@@ -816,7 +868,8 @@ function wire() {
       resetAlignment(); syncZoom(); status('Lens changed. Lining up…');
     } catch (err) { status(`Could not open that lens: ${err.message || err}`, 'bad'); }
   };
-  $('spot').onchange = () => { if (S.mode !== 'live') useSpot(); };
+  $('spot').onchange = () => { if (S.mode !== 'live') { if (S.mode === 'photo') { S.photoAcc = 0; S.photoHasCompass = false; resetAlignment(); photoPosText('spot'); } useSpot(); } };
+  $('photoPick').onclick = () => pickPhotoSpot();
   $('fov').oninput = e => { S.cam.fn = Camera.hfovToFn(+e.target.value); $('fovVal').textContent = `${(+e.target.value).toFixed(0)}°`; S.holdUntil = performance.now() + 1500; };
   $('cAuto').onchange = e => { S.auto = e.target.checked; };
   $('cLens').onchange = e => { S.lens = e.target.checked; };
