@@ -1,20 +1,21 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, D2R } from './terrain.js?v=1118.0227-f84010f';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1118.0227-f84010f';
-import { Camera, IDENT, matMul, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.0227-f84010f';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.0227-f84010f';
-import { renderSim } from './sim.js?v=1118.0227-f84010f';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.0227-f84010f';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.0227-f84010f';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.0227-f84010f';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.0227-f84010f';
-import { pickOnMap } from './mappick.js?v=1118.0227-f84010f';
-import { parseExif } from './exif.js?v=1118.0227-f84010f';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.0227-f84010f';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.0227-f84010f';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.0227-f84010f';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1118.0301-1e40894';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1118.0301-1e40894';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.0301-1e40894';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.0301-1e40894';
+import { renderSim } from './sim.js?v=1118.0301-1e40894';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.0301-1e40894';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.0301-1e40894';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.0301-1e40894';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.0301-1e40894';
+import { pickOnMap } from './mappick.js?v=1118.0301-1e40894';
+import { relocate } from './relocate.js?v=1118.0301-1e40894';
+import { parseExif } from './exif.js?v=1118.0301-1e40894';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.0301-1e40894';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.0301-1e40894';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.0301-1e40894';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -32,12 +33,15 @@ if ('serviceWorker' in navigator) {
 }
 
 const $ = id => document.getElementById(id);
+const fixBar = document.getElementById('fixBar');
 const FOV_MIN = 4, FOV_MAX = 110;    // long telephoto to ultra-wide
 const SOFT_ZOOM_MAX = 5;             // on-screen zoom where the camera offers none of its own
 const DEFAULT_HFOV = 64;      // phone main camera, video mode, along the long side of the frame
 const ZOOMS = [1, 0.6, 1.65]; // focal guesses tried while the lens is unknown: main, ultra-wide, tele
 const ANALYSIS_W = 320;
 const PHOTO_ACC_UNKNOWN = 10;  // meters: a photo's GPS fix when it does not say how good it is
+const RELOCATE_RADIUS = 250;   // meters: how far 'fix a line' may move a photo's spot
+const RELOCATE_LIFT = 60;      // meters: how far above the ground it may put the camera (a chairlift, a cliff top)
 const PHOTO_ACC_POOR = 25;     // meters: worse than this, suggest setting the spot on the map
 
 const S = {
@@ -47,7 +51,7 @@ const S = {
   sensorR: rotFromYPR(170, 8, 0),       // world -> camera straight from sensors
   yawCorr: 0, camCorr: IDENT,           // alignment: R = camCorr * sensorR * yaw(yawCorr)
   cam: new Camera(IDENT, Camera.hfovToFn(DEFAULT_HFOV), 0),
-  opts: { runs: true, lifts: true, ridges: true, labels: true, peaks: true, runLines: false, snowMask: true, snowThr: 0.55, alpha: 0.65, shade: 'rating', outline: false },
+  opts: { runs: false, lifts: true, ridges: true, labels: true, peaks: true, runLines: true, snowMask: true, snowThr: 0.55, alpha: 0.65, shade: 'rating', outline: false },
   auto: true, lens: true, lensKnown: false, chair: false,
   // live camera: which one, what its name says about the lens, its own zoom if exposed
   camera: { key: 'default', label: '', mult: 1, zoom: null, zoomValue: 1 }, softZoom: 1, photoZooms: null,
@@ -280,7 +284,7 @@ function setViewpoint(lat, lon) {
     try {
       const t0 = performance.now();
       const pano = buildPano(S.pack.terrain, lat, lon, {
-        eye: S.chair ? 9 : 1.7, ownerGrid: S.pack.terrain.fine, owner: S.own.owner, ownerCost: S.own.cost, reach: MAX_REACH, slope: S.slope,
+        eye: eyeHeight(), ownerGrid: S.pack.terrain.fine, owner: S.own.owner, ownerCost: S.own.cost, reach: MAX_REACH, slope: S.slope,
       });
       const chains = chainCrests(pano);
       S.pano = pano; S.model = alignModel(pano, chains); S.scene = buildScene(pano, chains, S.prep);
@@ -299,7 +303,8 @@ function setViewpoint(lat, lon) {
         S.demo.autoPitch = false;
       }
       S.demo.dirty = true; S.lastSolve = 0;
-      status(S.mode === 'demo' ? 'Demo view. Drag to look around.'
+      if (S.afterBuild) { const f = S.afterBuild; S.afterBuild = null; f(); }
+      else status(S.mode === 'demo' ? 'Demo view. Drag to look around.'
         : S.mode === 'photo' && S.photoAcc > PHOTO_ACC_POOR ? `Looking for the skyline… This photo's GPS is only good to ±${Math.round(S.photoAcc)} m: Menu > View sets the spot on a map.`
           : 'Looking for the skyline…');
     } catch (e) { status(e.message, 'bad'); }
@@ -435,6 +440,7 @@ function stopLive() {
 
 async function setMode(mode) {
   if (mode !== 'live') stopLive();
+  setFix(false);
   S.mode = mode;
   $('statMode').textContent = { live: 'Camera', demo: 'Demo', photo: 'Photo' }[mode];
   for (const b of $('modes').children) b.setAttribute('aria-pressed', b.dataset.mode === mode);
@@ -514,7 +520,7 @@ async function loadPhoto(file) {
   // missing means unknown, so assume a typical phone fix).
   S.photoFix = inMap ? { lat: exif.lat, lon: exif.lon, acc: exif.hError > 0 ? exif.hError : null } : null;
   let pos = spot.pos, yaw = spot.yaw, note = 'No GPS in this photo: tap where it was taken.';
-  S.photoAcc = 0;
+  S.photoAcc = 0; S.photoUp = 0; S.anchors = []; setFix(false);
   if (inMap) {
     pos = [exif.lat, exif.lon]; S.photoAcc = S.photoFix.acc ?? PHOTO_ACC_UNKNOWN;
     note = S.photoFix.acc != null ? `Photo location read from EXIF (±${Math.round(S.photoFix.acc)} m).` : 'Photo location read from EXIF.';
@@ -540,8 +546,80 @@ async function loadPhoto(file) {
 
 function photoPosText(how) {
   const f = S.photoFix;
-  $('photoPosVal').textContent = how === 'map' ? 'spot set on the map'
+  $('photoPosVal').textContent = how === 'fixed' ? 'spot moved to fit pinned lines' : how === 'map' ? 'spot set on the map'
     : how === 'GPS' ? `GPS${f?.acc != null ? ` ±${Math.round(f.acc)} m` : ''}` : 'no GPS: list spot';
+}
+
+// ------------------------------------------- photo: fix a line, move the spot
+
+/** Eye height above the ground: a chair rider sits higher; a photo may have been taken from above the ground. */
+const eyeHeight = () => (S.chair ? 9 : 1.7) + (S.mode === 'photo' ? S.photoUp || 0 : 0);
+
+function setFix(on) {
+  S.fixing = !!on && S.mode === 'photo';
+  S.grab = null;
+  const b = $('fixBtn');
+  b.setAttribute('aria-pressed', S.fixing);
+  b.textContent = S.fixing ? 'Done' : 'Fix a line';
+  $('fixUndo').hidden = !S.fixing || !S.anchors?.length;
+  if (S.fixing) status('Drag a lift or run line onto where it really is in the photo. Two lines at different distances work best.');
+}
+
+/** The lift or run point drawn nearest to (x, y), device pixels on the overlay. */
+function grabAt(x, y) {
+  const v = S.view, ox = (v.fw - v.sw) / 2, oy = (v.fh - v.sh) / 2, o = [0, 0];
+  let best = null, bd = 28 * v.dpr;
+  const near = (f, dirs, vis) => {
+    for (let i = 0; i < vis.length; i++) {
+      if (!vis[i] || !S.cam.project(dirs[i * 3], dirs[i * 3 + 1], dirs[i * 3 + 2], v.fw, v.fh, o)) continue;
+      const d = Math.hypot(o[0] - ox - x, o[1] - oy - y);
+      if (d < bd) { bd = d; best = { lat: f.pts[i][0], lon: f.pts[i][1], z: f.z[i], name: f.name || (f.kind === 'lift' ? 'lift' : 'run') }; }
+    }
+  };
+  if (S.opts.lifts) for (const l of S.scene.lifts) near(l.f, l.dirs, l.ok);
+  for (const r of S.scene.runs) near(r.f, r.dirs, r.vis);
+  return best;
+}
+
+/** Where a world point lands on the overlay now, device pixels, or null. */
+function onScreen(p) {
+  const v = S.view, look = panoLook(S.pano, p.lat, p.lon, p.z, {}), c = 1 / Math.hypot(1, look.t), o = [0, 0];
+  if (!S.cam.project(Math.sin(look.az) * c, Math.cos(look.az) * c, look.t * c, v.fw, v.fh, o)) return null;
+  return [o[0] - (v.fw - v.sw) / 2, o[1] - (v.fh - v.sh) / 2];
+}
+
+/** The pinned lines: where each is drawn now, a ring where it belongs, a band between. */
+function drawAnchors() {
+  const v = S.view, s = v.dpr, ox = (v.fw - v.sw) / 2, oy = (v.fh - v.sh) / 2;
+  const pair = (from, to, live) => {
+    octx.strokeStyle = 'rgba(8,16,22,0.6)'; octx.lineWidth = 4 * s;
+    octx.beginPath(); octx.moveTo(...from); octx.lineTo(...to); octx.stroke();
+    octx.strokeStyle = live ? '#3fb6ff' : '#ffd84a'; octx.lineWidth = 2 * s;
+    octx.beginPath(); octx.moveTo(...from); octx.lineTo(...to); octx.stroke();
+    octx.fillStyle = octx.strokeStyle; octx.beginPath(); octx.arc(from[0], from[1], 3.5 * s, 0, Math.PI * 2); octx.fill();
+    octx.strokeStyle = '#fff'; octx.lineWidth = 2.2 * s; octx.beginPath(); octx.arc(to[0], to[1], 8 * s, 0, Math.PI * 2); octx.stroke();
+  };
+  for (const a of S.anchors) { const at = onScreen(a); if (at) pair(at, [a.u * v.fw - ox, a.v * v.fh - oy], false); }
+  if (S.grab) { const at = onScreen(S.grab); if (at) pair(at, [S.grab.x, S.grab.y], true); }
+}
+
+/** Search spots (and heights) nearby for one that puts every pinned line where it belongs. */
+function runRelocate() {
+  if (!S.pano || !S.anchors.length) return;
+  const v = S.view;
+  const r = relocate(S.pano, S.cam, v.fh / v.fw, S.anchors, S.pack.terrain, S.chair ? 9 : 1.7, { radius: RELOCATE_RADIUS, lift: RELOCATE_LIFT });
+  if (!r) { status('Could not search around this spot.', 'bad'); return; }
+  S.photoUp = r.up;
+  // the rotation that keeps the skyline in place from the new spot; hold it there
+  S.yawCorr = 0; S.camCorr = orthonormalize(matMul(r.R, matT(S.sensorR)));
+  S.locked = true; S.settled = 3; S.holdUntil = 0;
+  const px = Math.round(r.after * v.fw / v.dpr);
+  const msg = `Moved the spot ${Math.round(r.moved)} m${r.up >= 3 ? `, ${Math.round(r.up)} m above the ground (taken from a lift?)` : ''}. `
+    + `${S.anchors.length > 1 ? 'Pinned lines are' : 'The pinned line is'} ${px <= 2 ? 'on target' : `within ${px} px`}.`;
+  S.photoNote = msg;
+  photoPosText('fixed');
+  S.afterBuild = () => status(msg, 'ok');
+  setViewpoint(r.lat, r.lon);
 }
 
 /** Say where the photo was taken by tapping a map. The compass tag goes with a bad fix, so search every heading. */
@@ -558,7 +636,7 @@ async function pickPhotoSpot(start) {
   if (view) $('pickHint').textContent += ' The white wedge is the view matched to the skyline: spots along its dashed line keep the ridges lined up, and a tap near the line lands on it.';
   const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.photoFix && { ...S.photoFix, acc: S.photoFix.acc ?? PHOTO_ACC_UNKNOWN }, view);
   if (!got || got === 'photo' || S.mode !== 'photo') return;   // 'photo': the library is open for another one
-  S.photoAcc = got.acc;
+  S.photoAcc = got.acc; S.photoUp = 0;
   S.photoHasCompass = false;
   resetAlignment();
   S.photoNote = `Spot set on the map (±${Math.round(got.acc)} m); searching every direction for the skyline.${S.photoLensNote || ''}`;
@@ -691,6 +769,9 @@ function tick(now) {
   shader.draw(S.source, S.cam, v, S.opts);
   if (S.scene) drawOverlay(octx, S.scene, S.cam, v, S.opts);
   else octx.clearRect(0, 0, v.sw, v.sh);
+  if (S.mode === 'photo' && S.pano && (S.anchors?.length || S.grab)) drawAnchors();
+  const fixOff = S.mode !== 'photo' || !S.scene;
+  if (fixBar.hidden !== fixOff) fixBar.hidden = fixOff;
   // a photo does not move: once it has settled, further solves can only disturb it
   const still = S.mode === 'photo' && S.settled >= 3;
   if (S.pano && !still && now - S.lastSolve > (S.locked ? 1800 : 900)) trySolve(now);
@@ -872,8 +953,14 @@ function wire() {
       resetAlignment(); syncZoom(); status('Lens changed. Lining up…');
     } catch (err) { status(`Could not open that lens: ${err.message || err}`, 'bad'); }
   };
-  $('spot').onchange = () => { if (S.mode !== 'live') { if (S.mode === 'photo') { S.photoAcc = 0; S.photoHasCompass = false; resetAlignment(); photoPosText('spot'); } useSpot(); } };
+  $('spot').onchange = () => { if (S.mode !== 'live') { if (S.mode === 'photo') { S.photoAcc = 0; S.photoUp = 0; S.photoHasCompass = false; resetAlignment(); photoPosText('spot'); } useSpot(); } };
   $('photoPick').onclick = () => pickPhotoSpot();
+  $('fixBtn').onclick = () => setFix(!S.fixing);
+  $('fixUndo').onclick = () => {
+    S.anchors.pop();
+    $('fixUndo').hidden = !S.anchors.length;
+    if (S.anchors.length) runRelocate(); else status('No lines pinned.');
+  };
   $('fov').oninput = e => { S.cam.fn = Camera.hfovToFn(+e.target.value); $('fovVal').textContent = `${(+e.target.value).toFixed(0)}°`; S.holdUntil = performance.now() + 1500; };
   $('cAuto').onchange = e => { S.auto = e.target.checked; };
   $('cLens').onchange = e => { S.lens = e.target.checked; };
@@ -957,11 +1044,19 @@ function wire() {
   };
   const centerAngle = e => Math.atan2(e.clientY - innerHeight / 2, e.clientX - innerWidth / 2);
   stage.addEventListener('pointerdown', e => {
+    if (S.fixing && S.scene && !pts.size && !S.grab) {
+      // fixing a line: grab the nearest lift or run, never slide the overlay
+      const x = e.clientX * S.view.dpr, y = e.clientY * S.view.dpr, g = grabAt(x, y);
+      if (g) { S.grab = { ...g, x, y, id: e.pointerId }; stage.setPointerCapture(e.pointerId); }
+      else status('Start the drag on a lift or run line.');
+      return;
+    }
     pts.set(e.pointerId, [e.clientX, e.clientY]);
     stage.setPointerCapture(e.pointerId);
     if (S.mode === 'demo') S.demo.dragging = true;
   });
   stage.addEventListener('pointermove', e => {
+    if (S.grab && e.pointerId === S.grab.id) { S.grab.x = e.clientX * S.view.dpr; S.grab.y = e.clientY * S.view.dpr; return; }
     const was = pts.get(e.pointerId);
     if (!was) return;
     const now = [e.clientX, e.clientY];
@@ -983,6 +1078,20 @@ function wire() {
     pts.set(e.pointerId, now);
   });
   const up = e => {
+    if (S.grab && e.pointerId === S.grab.id) {
+      const g = S.grab, v = S.view; S.grab = null;
+      const from = onScreen(g);
+      if (e.type === 'pointerup' && from && Math.hypot(from[0] - g.x, from[1] - g.y) > 6 * v.dpr) {
+        // one pin per point: dragging the same spot again replaces it
+        S.anchors = S.anchors.filter(a => Math.hypot(a.lat - g.lat, a.lon - g.lon) > 1e-6);
+        S.anchors.push({ lat: g.lat, lon: g.lon, z: g.z, name: g.name,
+          u: (g.x + (v.fw - v.sw) / 2) / v.fw, v: (g.y + (v.fh - v.sh) / 2) / v.fh });
+        $('fixUndo').hidden = false;
+        status('Finding the spot that fits…');
+        setTimeout(runRelocate, 20);
+      }
+      return;
+    }
     pts.delete(e.pointerId);
     if (!pts.size && S.demo.dragging) { S.demo.dragging = false; S.demo.dirty = true; S.demo.lastMove = performance.now(); }
   };

@@ -5,7 +5,7 @@
 // and peaks drawn on top. Drag pans, pinch zooms, two fingers turn it, a tap
 // drops the pin. Only the map tiles for the area on screen are fetched.
 
-import { CLASS_COLOR } from './runs.js?v=1118.0227-f84010f';
+import { CLASS_COLOR } from './runs.js?v=1118.0301-1e40894';
 
 const LIFT = '#9b4dff';
 const TAP_PX = 12;           // how far off a fingertip lands, CSS pixels: the pick's uncertainty
