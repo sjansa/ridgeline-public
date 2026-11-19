@@ -7,7 +7,7 @@
 // on the terrain feature between them. The camera then trims the result to
 // actual snow (see render.js), which is what bounds a run cut through trees.
 
-import { Grid, Terrain } from './terrain.js?v=1118.0316-99354b6';
+import { Grid, Terrain } from './terrain.js?v=1118.1807-8fd4651';
 
 export const DIFFICULTY = {
   novice: 1, easy: 1, intermediate: 2, advanced: 3, expert: 4, freeride: 4, extreme: 4, unknown: 5,
@@ -134,16 +134,33 @@ function runPitch(pts, z) {
 
 // Slope heat map: cool when gentle, full red from 30 degrees, purple beyond,
 // near black at vertical. [degrees, r, g, b]
-export const SLOPE_STOPS = [
-  [0, 40, 70, 200], [8, 30, 150, 235], [15, 40, 200, 170], [20, 90, 205, 70], [25, 250, 215, 40],
-  [30, 255, 0, 0], [38, 225, 0, 90], [47, 160, 0, 200], [60, 95, 0, 135], [75, 45, 0, 65], [90, 12, 0, 18],
-];
-export function slopeColor(deg) {
-  const S = SLOPE_STOPS;
+// Slope colors: [degrees, r, g, b, opacity 0..1]. Red where avalanches start
+// (32°), then on through magenta to a bright violet for cliffs, all light
+// enough to read as paint on the snow rather than shadow.
+export const SLOPE_SCALES = {
+  full: {
+    name: 'Full range', ticks: [0, 15, 32, 45, 60, 90], lo: 0, hi: 90,
+    stops: [
+      [0, 40, 70, 200, 1], [8, 30, 150, 235, 1], [15, 40, 200, 170, 1], [20, 90, 205, 70, 1], [26, 250, 215, 40, 1],
+      [29, 255, 140, 20, 1], [32, 255, 0, 0, 1], [40, 230, 0, 125, 1], [50, 195, 40, 235, 1], [65, 175, 95, 255, 1], [90, 215, 165, 255, 1],
+    ],
+  },
+  // Detail where avalanches happen: nothing under 30°, green to 32°, yellow at 32° and up from there.
+  avalanche: {
+    name: 'Avalanche (30°+)', ticks: [32, 38, 45, 55], lo: 28, hi: 60,
+    stops: [
+      [29.6, 40, 200, 70, 0], [30, 40, 200, 70, 1], [31.95, 40, 200, 70, 1], [32, 250, 215, 40, 1], [35, 255, 140, 20, 1],
+      [38, 255, 0, 0, 1], [42, 230, 0, 125, 1], [47, 195, 40, 235, 1], [55, 175, 95, 255, 1], [70, 215, 165, 255, 1], [90, 215, 165, 255, 1],
+    ],
+  },
+};
+/** [r, g, b, opacity] of a slope on a scale's stops. */
+export function slopeColor(deg, S = SLOPE_SCALES.full.stops) {
+  if (deg <= S[0][0]) return S[0].slice(1);
   let i = 1;
   while (i < S.length - 1 && deg > S[i][0]) i++;
   const a = S[i - 1], b = S[i], t = Math.min(1, Math.max(0, (deg - a[0]) / (b[0] - a[0])));
-  return [a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t];
+  return [1, 2, 3, 4].map(k => a[k] + (b[k] - a[k]) * t);
 }
 
 // Min-heap keyed by float cost, lazy deletion.

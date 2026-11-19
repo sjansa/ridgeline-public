@@ -1,8 +1,8 @@
 // render.js -- draws the camera frame with run shading (WebGL) and the line
 // work on top of it (2D canvas): ridges, lifts, run centerlines, labels.
 
-import { TAU, panoLook, panoVisible, panoCol, localFrame } from './terrain.js?v=1118.0316-99354b6';
-import { CLASS_TINT, CLASS_COLOR, slopeColor } from './runs.js?v=1118.0316-99354b6';
+import { TAU, panoLook, panoVisible, panoCol, localFrame } from './terrain.js?v=1118.1807-8fd4651';
+import { CLASS_TINT, CLASS_COLOR, slopeColor, SLOPE_SCALES } from './runs.js?v=1118.1807-8fd4651';
 
 const VS = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
 // Per pixel: undistort, rotate into the world, look the direction up in the
@@ -62,8 +62,8 @@ void main() {
         float sAcc = 0.0, wv = 0.0;
         for (int k = 0; k < 4; k++) if (p[k].a < 0.998) { sAcc += wt[k] * p[k].a; wv += wt[k]; }
         if (wv > 0.0) {
-          vec3 heat = texture2D(uLut, vec2(sAcc / wv * 255.0 / 254.0, 0.5)).rgb;
-          col = mix(col, heat * (0.5 + 0.7 * luma), uAlpha * smoothstep(0.0, 0.6, wv) * snow);
+          vec4 heat = texture2D(uLut, vec2(sAcc / wv * 255.0 / 254.0, 0.5));
+          col = mix(col, heat.rgb * (0.5 + 0.7 * luma), uAlpha * smoothstep(0.0, 0.6, wv) * snow * heat.a);
         }
       } else {
         vec3 cAcc = vec3(0.0);
@@ -142,13 +142,20 @@ export class Shader {
     this.vid = tex(0, gl.LINEAR);
     this.pano = tex(1, gl.NEAREST);
     this.lut = tex(2, gl.LINEAR);
-    const lut = new Uint8Array(256 * 4);
-    for (let i = 0; i < 256; i++) { const c = slopeColor(i * 90 / 255); lut.set([c[0], c[1], c[2], 255], i * 4); }
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lut);
+    this.setSlopeScale('full');
     gl.uniform1i(this.u.uVid, 0); gl.uniform1i(this.u.uPano, 1); gl.uniform1i(this.u.uLut, 2);
     gl.uniform3fv(this.u.uTint, new Float32Array(CLASS_TINT.flat()));
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     this.hasPano = false;
+  }
+
+  /** The colors for slope angles (a key of SLOPE_SCALES), as a 256-entry lookup over 0..90°. */
+  setSlopeScale(key) {
+    const gl = this.gl, stops = (SLOPE_SCALES[key] || SLOPE_SCALES.full).stops, lut = new Uint8Array(256 * 4);
+    for (let i = 0; i < 256; i++) { const c = slopeColor(i * 90 / 255, stops); lut.set([c[0], c[1], c[2], c[3] * 255], i * 4); }
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.lut);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lut);
+    this.slopeScale = key;
   }
 
   /** Upload a panorama: R class, G run id, B coverage, A slope (255 = none). */
@@ -184,6 +191,7 @@ export class Shader {
     gl.uniform1f(this.u.uAlpha, o.runs && this.hasPano ? o.alpha : 0);
     gl.uniform1f(this.u.uUseSnow, o.snowMask ? 1 : 0);
     gl.uniform1f(this.u.uSlope, o.shade === 'slope' ? 1 : 0);
+    if (o.slopeScale && o.slopeScale !== this.slopeScale) this.setSlopeScale(o.slopeScale);
     gl.uniform1f(this.u.uOutline, o.outline ? 1 : 0);
     gl.uniform1f(this.u.uPx, view.dpr);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

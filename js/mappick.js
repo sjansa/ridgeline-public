@@ -3,9 +3,11 @@
 // Satellite or topographic tiles when online, under them always the shaded
 // relief of the terrain pack (so it works offline too), with the lifts, runs
 // and peaks drawn on top. Drag pans, pinch zooms, two fingers turn it, a tap
-// drops the pin. Only the map tiles for the area on screen are fetched.
+// drops the pin. Only the map tiles for the area on screen are fetched. The
+// pin can go anywhere, not just on the maps the phone has: the caller offers
+// to download the area around a spot outside them.
 
-import { CLASS_COLOR } from './runs.js?v=1118.0316-99354b6';
+import { CLASS_COLOR } from './runs.js?v=1118.1807-8fd4651';
 
 const LIFT = '#9b4dff';
 const TAP_PX = 12;           // how far off a fingertip lands, CSS pixels: the pick's uncertainty
@@ -58,30 +60,43 @@ const tiles = new Map();     // url -> Image, kept across openings; oldest dropp
  * {lat, lon} to center on and pin; prior: {lat, lon, acc} drawn as a circle
  * (the photo's own GPS fix), or null. view: {lat, lon, yaw, hfov} in degrees,
  * the view matched to the skyline from that spot, drawn as a wedge, or null.
+ * covered(lat, lon): whether a map on the phone covers a spot (the OK button
+ * says it will get one otherwise). find(text): resolves to {lat, lon} for a
+ * place name, or null.
  * Resolves to {lat, lon, acc} (acc in meters), 'photo' when another photo is
  * wanted, or null when cancelled.
  */
-export function pickOnMap(el, grid, prep, start, prior, view = null) {
+export function pickOnMap(el, grid, prep, start, prior, view = null, covered = null, find = null) {
   const canvas = el.querySelector('canvas'), ctx = canvas.getContext('2d');
   const $ = s => el.querySelector(s);
   const shade = relief(grid);
-  const W = grid.cellE * (grid.cols - 1), H = grid.cellN * (grid.rows - 1);
-  // map meters: x east from the west edge, y south from the north edge
-  const toM = (lat, lon) => [(lon - grid.west) / grid.dx * grid.cellE, (grid.north - lat) / grid.dy * grid.cellN];
-  const toLL = (x, y) => [grid.north - y / grid.cellN * grid.dy, grid.west + x / grid.cellE * grid.dx];
-  const clampPt = ([x, y]) => [Math.min(W, Math.max(0, x)), Math.min(H, Math.max(0, y))];
+  // map meters: x east and y south of a reference point (lat0, lon0), which
+  // moves along when the map goes far away so the scale stays true there
+  let lat0, lon0, mE, mN = 110540;
+  const toM = (lat, lon) => [(lon - lon0) * mE, (lat0 - lat) * mN];
+  const toLL = (x, y) => [lat0 - y / mN, lon0 + x / mE];
   // view: center (cx, cy) in map meters, s CSS px per meter, th the map turned clockwise
-  let pin = clampPt(toM(start.lat, start.lon)), [cx, cy] = pin, s = 0.5, th = 0, dpr = 1;
+  let pin, cx, cy, s = 0.5, th = 0, dpr = 1;
   let type = 'satellite';
   try { const t = localStorage.getItem(TYPE_KEY); if (MAP_TYPES[t]) type = t; } catch { /* default */ }
-  const lines = [
-    ...prep.runs.filter(r => !r.area).map(r => ({ pts: r.pts.map(p => toM(p[0], p[1])), color: CLASS_COLOR[r.cls], w: 1.6, run: true })),
-    ...prep.lifts.map(l => ({ pts: l.pts.map(p => toM(p[0], p[1])), color: LIFT, w: 2.4, name: l.name })),
-  ];
-  const peaks = prep.peaks.map(p => ({ ...p, m: toM(p.lat, p.lon) }));
-  const priorM = prior ? toM(prior.lat, prior.lon) : null;
-  // the matched view: apex, unit direction (map meters, y south), half angle
-  const V = view ? { o: toM(view.lat, view.lon), u: [Math.sin(view.yaw * Math.PI / 180), -Math.cos(view.yaw * Math.PI / 180)], half: view.hfov * Math.PI / 360 } : null;
+  let lines, peaks, priorM, V, R0, R1;
+  /** Put the reference point at (lat, lon), keeping everything where it is on screen. */
+  function reframe(lat, lon) {
+    const c = cx != null ? toLL(cx, cy) : [start.lat, start.lon], p = pin ? toLL(...pin) : [start.lat, start.lon];
+    lat0 = lat; lon0 = lon; mE = 111320 * Math.cos(lat * Math.PI / 180);
+    [cx, cy] = toM(...c); pin = toM(...p);
+    lines = [
+      ...prep.runs.filter(r => !r.area).map(r => ({ pts: r.pts.map(q => toM(q[0], q[1])), color: CLASS_COLOR[r.cls], w: 1.6, run: true })),
+      ...prep.lifts.map(l => ({ pts: l.pts.map(q => toM(q[0], q[1])), color: LIFT, w: 2.4, name: l.name })),
+    ];
+    peaks = prep.peaks.map(q => ({ ...q, m: toM(q.lat, q.lon) }));
+    priorM = prior ? toM(prior.lat, prior.lon) : null;
+    // the matched view: apex, unit direction (map meters, y south), half angle
+    V = view ? { o: toM(view.lat, view.lon), u: [Math.sin(view.yaw * Math.PI / 180), -Math.cos(view.yaw * Math.PI / 180)], half: view.hfov * Math.PI / 360 } : null;
+    R0 = toM(grid.north, grid.west); R1 = toM(grid.south, grid.east);
+  }
+  reframe(start.lat, start.lon);
+  const recenterIfFar = () => { if (Math.hypot(cx, cy) > 30000) reframe(...toLL(cx, cy)); };
   const along = k => [V.o[0] + V.u[0] * k, V.o[1] + V.u[1] * k];
   const size = () => [canvas.clientWidth, canvas.clientHeight];
   const fwd = (x, y) => {
@@ -100,8 +115,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
     const t = MAP_TYPES[type];
     if (!t.url) return;
     // tile zoom whose pixels are about the size of the screen's
-    const lat0 = (grid.north + grid.south) / 2;
-    const z = Math.max(8, Math.min(t.max, Math.ceil(Math.log2(156543 * Math.cos(lat0 * Math.PI / 180) * s * dpr))));
+    const z = Math.max(2, Math.min(t.max, Math.ceil(Math.log2(156543 * Math.cos(lat0 * Math.PI / 180) * s * dpr))));
     const corners = [inv(0, 0), inv(w, 0), inv(0, h), inv(w, h)].map(([x, y]) => toLL(x, y));
     const la = corners.map(c => c[0]), lo = corners.map(c => c[1]);
     const x0 = Math.floor(lonTile(Math.min(...lo), z)), x1 = Math.floor(lonTile(Math.max(...lo), z));
@@ -135,7 +149,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
     ctx.save();
     ctx.translate(w / 2, h / 2); ctx.rotate(th); ctx.scale(s, s); ctx.translate(-cx, -cy);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(shade, 0, 0, W, H);
+    ctx.drawImage(shade, R0[0], R0[1], R1[0] - R0[0], R1[1] - R0[1]);
     drawTiles(w, h);
     ctx.restore();
     // lines and labels in screen pixels, so widths and text stay upright
@@ -190,19 +204,21 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
     ctx.beginPath(); ctx.moveTo(px, py); ctx.bezierCurveTo(px - 10, py - 14, px - 10, py - 28, px, py - 28); ctx.bezierCurveTo(px + 10, py - 28, px + 10, py - 14, px, py); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py - 19, 3.5, 0, Math.PI * 2); ctx.fill();
     // scale bar, bottom left above the buttons
-    const nice = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find(m => m * s > 60) || 5000;
-    const sy = h - 118;
+    const nice = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6].find(m => m * s > 60) || 1e6;
+    const sy = h - 196;
     ctx.fillStyle = 'rgba(12,20,27,0.7)'; ctx.fillRect(10, sy - 14, nice * s + 16, 20);
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(18, sy); ctx.lineTo(18 + nice * s, sy); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.fillText(nice >= 1000 ? `${nice / 1000} km` : `${nice} m`, 22, sy - 7);
     // the compass needle turns with the map
     $('#pickNorth svg').style.transform = `rotate(${th}rad)`;
+    const [plat, plon] = toLL(...pin);
+    $('#pickOk').textContent = !covered || covered(plat, plon) ? 'Use this spot' : 'Use · get map';
   }
 
   // Keep the map point under screen point (ax, ay) under (bx, by) after a zoom by f and a turn by dt.
   const gesture = (ax, ay, bx, by, f, dt) => {
     const m = inv(ax, ay);
-    s = Math.min(8, Math.max(0.03, s * f)); th += dt;
+    s = Math.min(8, Math.max(0.00005, s * f)); th += dt;
     const [w, h] = size(), dx = (bx - w / 2) / s, dy = (by - h / 2) / s, c = Math.cos(th), n = Math.sin(th);
     cx = m[0] - (dx * c + dy * n); cy = m[1] - (-dx * n + dy * c);
   };
@@ -235,13 +251,14 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
   };
   const up = e => {
     ptrs.delete(e.pointerId);
+    if (!ptrs.size) recenterIfFar();
     if (tap && e.type === 'pointerup' && performance.now() - tap.t < 600) {
       const [x, y] = local(e);
-      pin = clampPt(inv(x, y));
+      pin = inv(x, y);
       if (V) {
         // near the line of spots that keep the skyline match: land on it
         const k = (pin[0] - V.o[0]) * V.u[0] + (pin[1] - V.o[1]) * V.u[1], on = along(k), [lx, ly] = fwd(...on);
-        if (Math.hypot(lx - x, ly - y) < 28) pin = clampPt(on);
+        if (Math.hypot(lx - x, ly - y) < 28) pin = on;
       }
       redraw();
     }
@@ -253,6 +270,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
     // Shift + wheel turns the map, as two fingers do
     if (e.shiftKey) gesture(x, y, x, y, 1, (e.deltaY || e.deltaX) * 0.003);
     else gesture(x, y, x, y, Math.exp(-e.deltaY * 0.002), 0);
+    recenterIfFar();
     redraw();
   };
 
@@ -279,6 +297,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
       el.hidden = true;
       canvas.onpointerdown = canvas.onpointermove = canvas.onpointerup = canvas.onpointercancel = null;
       canvas.removeEventListener('wheel', wheel);
+      $('#pickFind').onsubmit = null;
       window.removeEventListener('resize', redraw);
       resolve(res);
     };
@@ -294,6 +313,26 @@ export function pickOnMap(el, grid, prep, start, prior, view = null) {
     };
     $('#pickCancel').onclick = () => done(null);
     $('#pickPhoto').onclick = () => done('photo');
+    // jump to a place by name, and drop the pin there
+    const box = $('#pickPlace');
+    $('#pickFind').hidden = !find;
+    box.value = '';
+    $('#pickFind').onsubmit = async e => {
+      e.preventDefault();
+      const q = box.value.trim();
+      if (!q) return;
+      box.blur();
+      const hint = $('#pickHint'), was = hint.textContent;
+      hint.textContent = 'Searching…';
+      let hit = null;
+      try { hit = await find(q); } catch { /* reported below */ }
+      if (el.hidden) return;
+      if (!hit) { hint.textContent = `Nothing found for "${q}". ${was}`; return; }
+      hint.textContent = was;
+      reframe(hit.lat, hit.lon);
+      cx = cy = 0; pin = [0, 0]; s = Math.max(s, 0.12);
+      redraw();
+    };
     el.hidden = false;
     redraw();
   });

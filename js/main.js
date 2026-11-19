@@ -1,21 +1,21 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1118.0316-99354b6';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_STOPS, MAX_REACH } from './runs.js?v=1118.0316-99354b6';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.0316-99354b6';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.0316-99354b6';
-import { renderSim } from './sim.js?v=1118.0316-99354b6';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.0316-99354b6';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.0316-99354b6';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.0316-99354b6';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.0316-99354b6';
-import { pickOnMap } from './mappick.js?v=1118.0316-99354b6';
-import { relocate } from './relocate.js?v=1118.0316-99354b6';
-import { parseExif } from './exif.js?v=1118.0316-99354b6';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.0316-99354b6';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.0316-99354b6';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.0316-99354b6';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1118.1807-8fd4651';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1118.1807-8fd4651';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.1807-8fd4651';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.1807-8fd4651';
+import { renderSim } from './sim.js?v=1118.1807-8fd4651';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.1807-8fd4651';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.1807-8fd4651';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.1807-8fd4651';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.1807-8fd4651';
+import { pickOnMap } from './mappick.js?v=1118.1807-8fd4651';
+import { relocate } from './relocate.js?v=1118.1807-8fd4651';
+import { parseExif } from './exif.js?v=1118.1807-8fd4651';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.1807-8fd4651';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.1807-8fd4651';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.1807-8fd4651';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -51,7 +51,7 @@ const S = {
   sensorR: rotFromYPR(170, 8, 0),       // world -> camera straight from sensors
   yawCorr: 0, camCorr: IDENT,           // alignment: R = camCorr * sensorR * yaw(yawCorr)
   cam: new Camera(IDENT, Camera.hfovToFn(DEFAULT_HFOV), 0),
-  opts: { runs: false, lifts: true, ridges: true, labels: true, peaks: true, runLines: true, snowMask: true, snowThr: 0.55, alpha: 0.65, shade: 'rating', outline: false },
+  opts: { runs: false, lifts: true, ridges: true, labels: true, peaks: true, runLines: true, snowMask: true, snowThr: 0.55, alpha: 0.65, shade: 'rating', slopeScale: 'full', outline: false },
   auto: true, lens: true, lensKnown: false, chair: false,
   // live camera: which one, what its name says about the lens, its own zoom if exposed
   camera: { key: 'default', label: '', mult: 1, zoom: null, zoomValue: 1 }, softZoom: 1, photoZooms: null,
@@ -178,12 +178,12 @@ async function pickArea() {
   } catch (e) { addState('addForm', `The map could not be opened: ${e.message || e}`); }
 }
 
-/** Show what a box would cost and ask for a name before downloading. */
-function proposeArea(bbox, name) {
+/** Show what a box would cost and ask for a name before downloading. then: what to do once it is saved, instead of opening it as usual. */
+function proposeArea(bbox, name, then = null) {
   const bad = checkBbox(bbox);
   if (bad) { addState(hasNativePicker() ? null : 'addForm', bad); return; }
   const [kx, ky] = bboxKm(bbox), est = estimate(bbox);
-  S.adding = { bbox };
+  S.adding = { bbox, then };
   addState('addConfirm');
   $('addWhat').textContent = `${kx.toFixed(0)} × ${ky.toFixed(0)} km. About ${(est.downloadBytes / 1e6).toFixed(0)} MB to download and ${(est.storeBytes / 1e6).toFixed(0)} MB on the phone. Best done on Wi-Fi before the trip.`;
   $('addName').value = (name || '').slice(0, 40);
@@ -191,7 +191,7 @@ function proposeArea(bbox, name) {
 }
 
 async function downloadArea() {
-  const name = $('addName').value.trim() || 'My map area', bbox = S.adding.bbox;
+  const name = $('addName').value.trim() || 'My map area', { bbox, then } = S.adding;
   const ctl = new AbortController();
   S.adding.stop = () => ctl.abort();
   addState('addProg');
@@ -204,10 +204,28 @@ async function downloadArea() {
     addState(null);
     $('getHere').hidden = true;
     status(`${name}: ${area.lifts} lifts and ${area.runs} runs saved.`, 'ok');
-    await chooseArea(area);
+    if (then) { $('sheet').hidden = true; await useArea(area); then(); } else await chooseArea(area);
   } catch (e) {
     addState(null, ctl.signal.aborted ? 'Download canceled.' : e.message || String(e));
   } finally { S.adding = null; }
+}
+
+/** A place by name, from OpenStreetMap: {lat, lon, name}, or null. */
+async function geocode(q) {
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`);
+  const hit = (await r.json())[0];
+  return hit ? { lat: +hit.lat, lon: +hit.lon, name: hit.name } : null;
+}
+
+/** A map on the phone (or published) covers this spot. */
+const covered = (lat, lon) => S.pack?.terrain.fine.contains(lon, lat) || !!areaAt(S.catalog, lat, lon);
+
+/** The photo was taken where there is no map yet: offer the area around it, then carry on with then(). */
+function offerPhotoArea(lat, lon, then, name = null) {
+  S.pano = S.scene = null;
+  const msg = 'This photo was taken outside your maps. Download the area around it to see it.';
+  S.photoNote = msg; status(msg, 'bad');
+  proposeArea(boxAround(lat, lon, 14), name || `Map at ${lat.toFixed(2)}, ${lon.toFixed(2)}`, then);
 }
 
 /** Fallback where there is no native map: find a place by name. */
@@ -216,8 +234,7 @@ async function findPlace() {
   if (!q) { $('addErr').textContent = 'Type a place name first.'; return; }
   $('addErr').textContent = 'Searching…';
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`);
-    const hit = (await r.json())[0];
+    const hit = await geocode(q);
     if (!hit) { $('addErr').textContent = 'Nothing found by that name.'; return; }
     proposeArea(boxAround(+hit.lat, +hit.lon, +$('addSize').value), hit.name || q);
   } catch { $('addErr').textContent = 'Search failed. Check the connection.'; }
@@ -507,6 +524,9 @@ function aimFromFix(fix) {
 async function loadPhoto(file) {
   const buf = await file.arrayBuffer();
   const exif = parseExif(buf);
+  S.photoFile = file;
+  // the photo's own fix, wherever it is (S.photoFix below only when a map covers it)
+  S.photoGps = exif?.lat != null && exif?.lon != null ? { lat: exif.lat, lon: exif.lon, acc: exif.hError > 0 ? exif.hError : PHOTO_ACC_UNKNOWN } : null;
   if (exif?.lat != null) await areaFor(exif.lat, exif.lon).catch(() => false);
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
   const sc = Math.min(1, 1600 / bmp.width);
@@ -526,7 +546,7 @@ async function loadPhoto(file) {
     note = S.photoFix.acc != null ? `Photo location read from EXIF (±${Math.round(S.photoFix.acc)} m).` : 'Photo location read from EXIF.';
     if (S.photoAcc > PHOTO_ACC_POOR) note += ' That is rough: set the spot on the map under Menu > View.';
     yaw = exif.direction != null ? exif.direction + (exif.directionRef === 'M' ? orient.declination : 0) : 0;
-  } else if (exif?.lat != null) note = 'This photo was taken outside the map: using the spot chosen under Menu > View.';
+  }
   // Focal length, digital zoom and any crop, from EXIF; the solver refines it.
   const lens = photoLens(exif, photoCanvas.width, photoCanvas.height);
   S.cam.fn = lens.known ? lens.fn : Camera.hfovToFn(DEFAULT_HFOV) * Math.max(photoCanvas.width, photoCanvas.height) / photoCanvas.width;
@@ -539,6 +559,11 @@ async function loadPhoto(file) {
   syncFov();
   S.photoNote = note;
   photoPosText(inMap ? 'GPS' : 'spot');
+  // Taken where there is no map yet: offer one, then read the photo again.
+  if (exif?.lat != null && !inMap) {
+    offerPhotoArea(exif.lat, exif.lon, () => { if (S.photoFile === file && S.mode === 'photo') loadPhoto(file); });
+    return;
+  }
   setViewpoint(pos[0], pos[1]);
   // No position at all: a spot from the list is surely wrong, so ask straight away.
   if (exif?.lat == null) pickPhotoSpot({ lat: pos[0], lon: pos[1] });
@@ -626,16 +651,34 @@ function runRelocate() {
 async function pickPhotoSpot(start) {
   if (S.mode !== 'photo' || !S.pack) return;
   $('sheet').hidden = true;
-  const o = start?.lat != null ? start : S.origin;
+  const o = start?.lat != null ? start : S.photoGps && !S.photoFix ? S.photoGps : S.origin;
   if (!o) return;
   $('pickHint').textContent = 'Tap where the photo was taken. Drag to move, pinch to zoom, twist to turn.'
-    + (S.photoFix ? ' The yellow circle is where the photo\'s own GPS put it.' : '');
+    + (S.photoGps ? ' The yellow circle is where the photo\'s own GPS put it.' : '');
   // Once the skyline has been matched, show the view it found: every spot along
   // its center line sees the far ridges the same way, so that is where to slide.
   const view = S.locked && S.origin ? { lat: S.origin.lat, lon: S.origin.lon, yaw: yprFromRot(S.cam.R).yaw, hfov: S.cam.hfov } : null;
   if (view) $('pickHint').textContent += ' The white wedge is the view matched to the skyline: spots along its dashed line keep the ridges lined up, and a tap near the line lands on it.';
-  const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.photoFix && { ...S.photoFix, acc: S.photoFix.acc ?? PHOTO_ACC_UNKNOWN }, view);
+  $('pickHint').textContent += ' Anywhere works: outside your maps, it offers to download the area.';
+  let place = null;   // the last place searched for, to name a new map after
+  const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.photoGps, view,
+    covered, async q => (place = await geocode(q)));
   if (!got || got === 'photo' || S.mode !== 'photo') return;   // 'photo': the library is open for another one
+  if (!S.pack.terrain.fine.contains(got.lon, got.lat)) {
+    const file = S.photoFile, again = () => { if (S.photoFile === file && S.mode === 'photo') usePhotoSpot(got); };
+    if (!areaAt(S.catalog, got.lat, got.lon)) {
+      const near = place && Math.hypot(place.lat - got.lat, (place.lon - got.lon) * Math.cos(got.lat * D2R)) < 0.05;
+      offerPhotoArea(got.lat, got.lon, again, near ? place.name : null);
+      return;
+    }
+    try { await areaFor(got.lat, got.lon); } catch (e) { status(`Could not load that map: ${e.message}`, 'bad'); return; }
+  }
+  usePhotoSpot(got);
+}
+
+/** Look from a spot picked on the map. */
+function usePhotoSpot(got) {
+  S.photoFix = S.photoFix && S.pack.terrain.fine.contains(S.photoFix.lon, S.photoFix.lat) ? S.photoFix : null;
   S.photoAcc = got.acc; S.photoUp = 0;
   S.photoHasCompass = false;
   resetAlignment();
@@ -977,12 +1020,25 @@ function wire() {
   };
   $('alpha').oninput = e => setAlpha(+e.target.value);
   setAlpha(S.opts.alpha);
-  $('legendBar').style.background = `linear-gradient(90deg, ${SLOPE_STOPS.map(s => `rgb(${s[1]},${s[2]},${s[3]}) ${(s[0] / 90 * 100).toFixed(1)}%`).join(', ')})`;
-  [0, 15, 30, 45, 60, 90].forEach((d, i) => { $('legendTicks').children[i].style.left = `${d / 90 * 100}%`; });
+  // the slope legend: the scale's range, sampled finely so the hard steps stay sharp
+  const setSlopeScale = key => {
+    const sc = SLOPE_SCALES[key] || SLOPE_SCALES.full, span = sc.hi - sc.lo, at = d => `${((d - sc.lo) / span * 100).toFixed(1)}%`;
+    S.opts.slopeScale = key;
+    for (const o of $('slopeScale').children) o.setAttribute('aria-pressed', o.dataset.scale === key);
+    const g = [];
+    for (let i = 0; i <= 120; i++) { const d = sc.lo + span * i / 120, c = slopeColor(d, sc.stops); g.push(`rgba(${c.slice(0, 3).map(Math.round)},${Math.max(0.15, c[3])}) ${at(d)}`); }
+    $('legendBar').style.background = `linear-gradient(90deg, ${g.join(', ')})`;
+    $('legendTicks').replaceChildren(...sc.ticks.map(d => { const t = document.createElement('span'); t.textContent = `${d}°`; t.style.left = at(d); t.style.transform = d <= sc.lo ? 'none' : d >= sc.hi ? 'translateX(-100%)' : ''; return t; }));
+    try { localStorage.setItem('ridgeline.slopeScale', key); } catch { /* not kept */ }
+  };
+  for (const b of $('slopeScale').children) b.onclick = () => setSlopeScale(b.dataset.scale);
+  let savedScale = 'full';
+  try { savedScale = localStorage.getItem('ridgeline.slopeScale') || 'full'; } catch { /* default */ }
+  setSlopeScale(savedScale);
   for (const b of $('shade').children) b.onclick = () => {
     S.opts.shade = b.dataset.shade;
     for (const o of $('shade').children) o.setAttribute('aria-pressed', o === b);
-    $('legend').hidden = S.opts.shade !== 'slope';
+    $('legend').hidden = $('slopeRow').hidden = S.opts.shade !== 'slope';
   };
   $('cOutline').onchange = e => { S.opts.outline = e.target.checked; };
   const sheet = $('sheet');

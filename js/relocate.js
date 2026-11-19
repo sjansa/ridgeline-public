@@ -13,8 +13,8 @@
 // best keeps them in place comes from Horn's closed-form quaternion fit, and
 // nothing is re-rendered. No DOM.
 
-import { llToEnu, enuToLat, enuToLon, R_EFF, TAU } from './terrain.js?v=1118.0316-99354b6';
-import { Camera } from './camera.js?v=1118.0316-99354b6';
+import { llToEnu, enuToLat, enuToLon, R_EFF, TAU } from './terrain.js?v=1118.1807-8fd4651';
+import { Camera } from './camera.js?v=1118.1807-8fd4651';
 
 const RIDGE_TOL = 0.008;     // skyline drift worth one anchor miss of ANCHOR_TOL, in picture widths
 const RIDGE_CAP = 0.015;     // a point that drifts further is probably mis-detected anyway

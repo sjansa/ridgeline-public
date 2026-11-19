@@ -127,7 +127,6 @@
   #legendBar { height: 9px; border-radius: 3px; }
   #legendTicks { position: relative; height: 15px; font: 600 12px var(--display); color: var(--text); }
   #legendTicks span { position: absolute; top: 2px; transform: translateX(-50%); }
-  #legendTicks span:first-child { transform: none; } #legendTicks span:last-child { transform: translateX(-100%); }
 
   @media (orientation: landscape) {
     #bar { left: auto; right: calc(var(--sr) + 10px); bottom: auto; top: 50%; transform: translateY(-50%); flex-direction: column; max-height: calc(100vh - 16px); }
@@ -167,6 +166,9 @@
   #pickTypes { position: absolute; right: calc(var(--sr) + 66px); top: calc(var(--st) + 10px); display: grid; gap: 2px; padding: 5px; min-width: 170px; background: rgba(13, 28, 37, 0.92); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
   #pickTypes button { background: none; text-align: left; min-height: 44px; padding: 0 12px; border-radius: 10px; font: 500 15px var(--body); }
   #pickTypes button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.14); color: var(--go); font-weight: 600; }
+  #pickFind { position: absolute; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); bottom: calc(var(--sb) + 86px); max-width: 480px; margin: 0 auto; }
+  #pickFind[hidden] { display: none; }
+  #pickPlace { width: 100%; box-sizing: border-box; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(13, 28, 37, 0.92); color: var(--text); font: 500 16px var(--body); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
   #pickCredit { position: absolute; right: calc(var(--sr) + 6px); bottom: calc(var(--sb) + 6px); padding: 2px 6px; border-radius: 6px; background: rgba(12, 20, 27, 0.6); color: #dfe8ed; font: 500 10px/1.3 var(--body); pointer-events: none; }
 </style>
 </head>
@@ -178,12 +180,12 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1118.0316-99354b6</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1118.1807-8fd4651</span></div>
 </div>
 
 <div id="legend" hidden>
   <div id="legendBar"></div>
-  <div id="legendTicks"><span>0°</span><span>15°</span><span>30°</span><span>45°</span><span>60°</span><span>90°</span></div>
+  <div id="legendTicks"></div>
 </div>
 
 <div id="sheet" class="sheet" hidden>
@@ -218,6 +220,14 @@
         <button data-shade="rating" aria-pressed="true">Trail rating</button>
         <button data-shade="slope" aria-pressed="false">Slope angle</button>
       </div>
+    </div>
+    <div class="row" id="slopeRow" hidden>
+      <label>Slope colors</label>
+      <div class="seg two" id="slopeScale">
+        <button data-scale="full" aria-pressed="true">Full range</button>
+        <button data-scale="avalanche" aria-pressed="false">Avalanche 30°+</button>
+      </div>
+      <p class="legend">Avalanche shows only slopes of 30° and steeper: green to 32°, yellow at 32°, then orange, red, magenta and violet as it steepens.</p>
     </div>
     <label class="sw">Outlines only<input id="cOutline" type="checkbox"></label>
     <label class="sw"><span>Trim runs to snow<small>Shade only where the camera sees snow</small></span><input id="cSnow" type="checkbox" checked></label>
@@ -325,7 +335,7 @@
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
       <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. The map for setting a photo's spot loads satellite or topographic pictures of the area on screen from Esri or OpenTopoMap. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1118.0316-99354b6</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1118.1807-8fd4651</span></p>
     </details>
   </div>
 </div>
@@ -336,6 +346,7 @@
   <button class="round" id="pickType" aria-label="Map type"><svg viewBox="0 0 24 24" style="width:22px;height:22px;stroke-width:1.8"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5" opacity=".75"/><path d="M3 16.5L12 21l9-4.5" opacity=".5"/></svg></button>
   <div id="pickTypes" role="group" aria-label="Map type" hidden></div>
   <button class="round" id="pickNorth" aria-label="Turn the map north up"><svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="11.5"/><path class="needle-n" d="M14 4.5l3 9.5h-6z"/><path class="needle-s" d="M14 23.5l-3-9.5h6z"/></svg></button>
+  <form id="pickFind" role="search"><input id="pickPlace" type="search" placeholder="Find a place" enterkeyhint="search" autocomplete="off" aria-label="Find a place"></form>
   <div class="acts"><button class="btn" id="pickCancel">Cancel</button><label class="btn" id="pickPhoto" for="file">Other photo</label><button class="btn go" id="pickOk">Use this spot</button></div>
   <div id="pickCredit"></div>
 </div>
@@ -369,10 +380,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1118.0316-99354b6</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1118.1807-8fd4651</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1118.0316-99354b6"></script>
+<script type="module" src="js/main.js?v=1118.1807-8fd4651"></script>
 </body>
 </html>
