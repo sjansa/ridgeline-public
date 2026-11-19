@@ -1,21 +1,22 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1119.0458-0b12c9f';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1119.0458-0b12c9f';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1119.0458-0b12c9f';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1119.0458-0b12c9f';
-import { renderSim } from './sim.js?v=1119.0458-0b12c9f';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1119.0458-0b12c9f';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1119.0458-0b12c9f';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1119.0458-0b12c9f';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1119.0458-0b12c9f';
-import { pickOnMap } from './mappick.js?v=1119.0458-0b12c9f';
-import { relocate } from './relocate.js?v=1119.0458-0b12c9f';
-import { parseExif } from './exif.js?v=1119.0458-0b12c9f';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1119.0458-0b12c9f';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1119.0458-0b12c9f';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1119.0458-0b12c9f';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1119.0529-0ac4132';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1119.0529-0ac4132';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1119.0529-0ac4132';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1119.0529-0ac4132';
+import { renderSim } from './sim.js?v=1119.0529-0ac4132';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1119.0529-0ac4132';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1119.0529-0ac4132';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1119.0529-0ac4132';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1119.0529-0ac4132';
+import { pickOnMap } from './mappick.js?v=1119.0529-0ac4132';
+import { relocate } from './relocate.js?v=1119.0529-0ac4132';
+import { parseExif } from './exif.js?v=1119.0529-0ac4132';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1119.0529-0ac4132';
+import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1119.0529-0ac4132';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1119.0529-0ac4132';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1119.0529-0ac4132';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -51,7 +52,7 @@ const S = {
   sensorR: rotFromYPR(170, 8, 0),       // world -> camera straight from sensors
   yawCorr: 0, camCorr: IDENT,           // alignment: R = camCorr * sensorR * yaw(yawCorr)
   cam: new Camera(IDENT, Camera.hfovToFn(DEFAULT_HFOV), 0),
-  opts: { runs: false, lifts: true, ridges: true, labels: true, peaks: true, runLines: true, snowMask: true, snowThr: 0.55, alpha: 0.65, shade: 'rating', slopeScale: 'full', outline: false },
+  opts: { runs: false, lifts: true, ridges: true, labels: true, peaks: true, runLines: true, snowMask: true, snowThr: 0.55, alpha: 0.65, shade: 'rating', slopeScale: 'full', outline: false, near: true },
   auto: true, lens: true, lensKnown: false, chair: false,
   // live camera: which one, what its name says about the lens, its own zoom if exposed
   camera: { key: 'default', label: '', mult: 1, zoom: null, zoomValue: 1 }, softZoom: 1, photoZooms: null,
@@ -119,7 +120,7 @@ async function listAreas() {
     row.className = 'area';
     name.textContent = a.name;
     const cur = a.id === S.area.id, mb = `${(a.bytes / 1e6).toFixed(0)} MB`;
-    sub.textContent = cur ? `${mb} · in use` : saved[a.id] ? `${mb} · on this phone` : `${mb} · not downloaded`;
+    sub.textContent = (cur ? `${mb} · in use` : saved[a.id] ? `${mb} · on this phone` : `${mb} · not downloaded`) + (a.near ? ' · 1 m middle' : '');
     txt.append(name, sub);
     const use = document.createElement('button'), del = document.createElement('button');
     use.className = 'btn'; use.textContent = saved[a.id] ? 'Use' : 'Get'; use.disabled = cur;
@@ -133,6 +134,7 @@ async function listAreas() {
         return;
       }
       await removeArea(a);
+      unpin(a.id).catch(() => {});
       if (a.custom) S.catalog = S.catalog.filter(x => x.id !== a.id);
       await listAreas();
     };
@@ -185,20 +187,41 @@ function proposeArea(bbox, name, then = null) {
   const [kx, ky] = bboxKm(bbox), est = estimate(bbox);
   S.adding = { bbox, then };
   addState('addConfirm');
-  $('addWhat').textContent = `${kx.toFixed(0)} × ${ky.toFixed(0)} km. About ${(est.downloadBytes / 1e6).toFixed(0)} MB to download and ${(est.storeBytes / 1e6).toFixed(0)} MB on the phone. Best done on Wi-Fi before the trip.`;
+  // 1 m terrain where the US has it: for the middle of the area only, SAVE_KM a side, to keep the download sane
+  const c = [(bbox[1] + bbox[3]) / 2, (bbox[0] + bbox[2]) / 2], fine1 = in3dep(c[0], c[1]);
+  S.adding.nearBox = fine1 ? nearBox(c[0], c[1], SAVE_KM, bbox) : null;
+  const extra = fine1 ? tilesInBox(S.adding.nearBox).length * TILE_BYTES : 0;
+  $('addDetailRow').hidden = !fine1;
+  const what = () => {
+    const one = S.adding?.detail === 1, nb = S.adding?.nearBox;
+    const [nx, ny] = nb ? bboxKm(nb) : [0, 0];
+    $('addWhat').textContent = `${kx.toFixed(0)} × ${ky.toFixed(0)} km at 10 m${one ? `, plus 1 m for the middle ${nx.toFixed(0)} × ${ny.toFixed(0)} km` : ''}. About ${((est.downloadBytes + (one ? extra : 0)) / 1e6).toFixed(0)} MB to download and ${((est.storeBytes + (one ? extra : 0)) / 1e6).toFixed(0)} MB on the phone. Best done on Wi-Fi before the trip.`;
+    for (const b of $('addDetail').children) b.setAttribute('aria-pressed', +b.dataset.d === (one ? 1 : 10));
+  };
+  S.adding.detail = 10;
+  for (const b of $('addDetail').children) b.onclick = () => { if (S.adding) { S.adding.detail = +b.dataset.d; what(); } };
+  what();
   $('addName').value = (name || '').slice(0, 40);
   $('sheet').hidden = false; showTab('maps');
 }
 
 async function downloadArea() {
-  const name = $('addName').value.trim() || 'My map area', { bbox, then } = S.adding;
+  const name = $('addName').value.trim() || 'My map area', { bbox, then, detail, nearBox: nb } = S.adding;
   const ctl = new AbortController();
   S.adding.stop = () => ctl.abort();
   addState('addProg');
   try {
+    const one = detail === 1 && nb, share = one ? 0.7 : 1;
     const { area, files } = await buildArea({ id: `my-${Date.now().toString(36)}`, name, bbox }, (f, msg) => {
-      $('addBar').value = f; $('addMsg').textContent = `${msg} ${Math.round(f * 100)}%`;
+      $('addBar').value = f * share; $('addMsg').textContent = `${msg} ${Math.round(f * share * 100)}%`;
     }, ctl.signal);
+    if (one) {
+      const got = await saveBox(nb, area.id, (f, bytes) => {
+        $('addBar').value = share + (1 - share) * f; $('addMsg').textContent = `1 m terrain… ${(bytes / 1e6).toFixed(0)} MB`;
+      }, ctl.signal);
+      area.near = { bbox: nb, tiles: got.tiles };
+      area.bytes += got.bytes;
+    }
     await saveBuilt(area, files);
     S.catalog.push(area);
     addState(null);
@@ -300,6 +323,7 @@ function setViewpoint(lat, lon) {
   setTimeout(() => {
     try {
       const t0 = performance.now();
+      attachNear(lat, lon);
       const pano = buildPano(S.pack.terrain, lat, lon, {
         eye: eyeHeight(), ownerGrid: S.pack.terrain.fine, owner: S.own.owner, ownerCost: S.own.cost, reach: MAX_REACH, slope: S.slope,
       });
@@ -326,7 +350,80 @@ function setViewpoint(lat, lon) {
           : 'Looking for the skyline…');
     } catch (e) { status(e.message, 'bad'); }
     S.building = false;
+    fetchNear(lat, lon);
   }, 30);
+}
+
+// ------------------------------------------------ 1 m terrain near the viewer
+
+const near10 = (lon, lat) => { const t = S.pack.terrain, z = t.fine.sample(lon, lat); return z === z ? z : t.coarse.sample(lon, lat); };
+const nearWanted = (lat, lon) => S.opts.near && in3dep(lat, lon);
+// out to where a meter shrinks to a screen pixel with this lens and zoom
+const nearR = () => nearRadius(S.cam.fn, S.view.fw || 1200);
+
+/** Put the 1 m terrain in hand around a spot under the map, or take it away. */
+function attachNear(lat, lon) {
+  const t = S.pack.terrain;
+  t.near = null; S.near = null;
+  if (nearWanted(lat, lon)) {
+    const r = nearR(), ng = nearGrid(lat, lon, r, near10);
+    if (ng) { t.near = ng.grid; S.near = { r, cover: Math.round(ng.cover * 100) / 100, cols: ng.grid.cols, rows: ng.grid.rows }; }
+  }
+  $('attrib').textContent = S.pack.meta.attribution + (S.near ? ` ${NEAR_ATTRIBUTION}` : '');
+}
+
+/** Fetch the 1 m tiles a spot needs in the background (from the device or the network), then rebuild the view on them. */
+async function fetchNear(lat, lon) {
+  if (!S.pack || !nearWanted(lat, lon)) return;
+  const list = tilesFor(lat, lon, nearR());
+  if (haveTiles(list)) {
+    // in hand but not in use (the lens widened the radius, say): rebuild once
+    if (S.near?.cover < 0.99 || !S.near || S.near.r < nearR()) { if (S.nearTried !== list.join()) { S.nearTried = list.join(); rebuildForNear(lat, lon); } }
+    return;
+  }
+  const job = list.join();
+  if (S.nearJob === job) return;
+  S.nearJob = job;
+  let got = 0;
+  try { got = await ensureTiles(list, { net: navigator.onLine !== false }); } catch { /* the 10 m map will do */ }
+  if (S.nearJob === job) S.nearJob = null;
+  if (got) rebuildForNear(lat, lon);
+}
+function rebuildForNear(lat, lon) {
+  const o = S.origin;
+  // the view moved on: its own build asks for what it needs
+  if (!o || Math.abs(o.lat - lat) > 1e-7 || Math.abs(o.lon - lon) > 1e-7) return;
+  if (S.building) { setTimeout(() => rebuildForNear(lat, lon), 400); return; }
+  if (!S.afterBuild) S.afterBuild = () => { if (S.near) status(`1 m terrain in use within ${S.near.r} m.`, 'ok'); };
+  setViewpoint(lat, lon);
+}
+
+/** The Maps pane's line about saved 1 m terrain. */
+async function nearInfo() {
+  const p = await pinned('here').catch(() => ({ tiles: 0 }));
+  const areas = S.catalog?.filter(a => a.near).length || 0;
+  $('nearInfo').textContent = (p.tiles ? `Saved 1 m terrain: ${p.tiles} tiles, about ${(p.bytes / 1e6).toFixed(0)} MB. ` : '')
+    + (areas ? `${areas} map area${areas > 1 ? 's' : ''} carry 1 m for their middle. ` : '')
+    + `"Save 1 m here" keeps ${SAVE_KM} × ${SAVE_KM} km around the current spot on the phone for use offline. Seen once, nearby 1 m stays on the phone for a while anyway.`;
+  $('nearDel').disabled = !p.tiles;
+}
+async function saveNearHere() {
+  const b = $('nearSave'), o = S.origin;
+  if (!o) { $('nearInfo').textContent = 'No spot yet: wait for the view to load.'; return; }
+  if (!in3dep(o.lat, o.lon)) { $('nearInfo').textContent = 'There is no 1 m terrain here: USGS lidar covers the US only.'; return; }
+  const box = nearBox(o.lat, o.lon, SAVE_KM), mb = tilesInBox(box).length * TILE_BYTES / 1e6;
+  // two taps: the first says what it costs
+  if (b.dataset.armed !== '1') {
+    b.dataset.armed = '1'; b.textContent = `Download ~${mb.toFixed(0)} MB?`;
+    setTimeout(() => { if (b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = 'Save 1 m here'; } }, 4000);
+    return;
+  }
+  b.dataset.armed = 'busy'; b.disabled = true;
+  try {
+    await saveBox(box, 'here', (f, bytes) => { b.textContent = `${Math.round(f * 100)}%`; $('nearInfo').textContent = `Saving 1 m terrain… ${(bytes / 1e6).toFixed(0)} MB`; });
+    await nearInfo();
+  } catch (e) { $('nearInfo').textContent = `Could not save the 1 m terrain: ${e.message || e}`; }
+  b.dataset.armed = ''; b.disabled = false; b.textContent = 'Save 1 m here';
 }
 
 // ------------------------------------------------------------------- modes
@@ -865,7 +962,7 @@ function telemetry() {
     },
     photo: S.mode === 'photo' ? { fix: S.photoFix, acc: S.photoAcc, up: S.photoUp, compass: S.photoHasCompass, note: S.photoNote,
       pins: (S.anchors || []).map(p => ({ name: p.name, lat: r(p.lat, 6), lon: r(p.lon, 6), z: r(p.z, 1), u: r(p.u, 4), v: r(p.v, 4) })) } : null,
-    layers: S.opts, scene: S.scene ? { lifts: S.scene.lifts.length, runs: S.scene.runs.length, peaks: S.scene.peaks.length, liftAcc: S.scene.acc } : null,
+    near: S.near, layers: S.opts, scene: S.scene ? { lifts: S.scene.lifts.length, runs: S.scene.runs.length, peaks: S.scene.peaks.length, liftAcc: S.scene.acc } : null,
     build: { ms: r(S.buildMs, 0) }, ua: navigator.userAgent,
   };
 }
@@ -1000,6 +1097,7 @@ function syncFov() {
 function showTab(name) {
   for (const b of $('tabs').children) b.setAttribute('aria-selected', b.dataset.tab === name);
   for (const p of document.querySelectorAll('.pane')) p.hidden = p.dataset.pane !== name;
+  if (name === 'maps') nearInfo();
 }
 
 function wire() {
@@ -1116,6 +1214,15 @@ function wire() {
   $('cAuto').onchange = e => { S.auto = e.target.checked; };
   $('cLens').onchange = e => { S.lens = e.target.checked; };
   $('cSnow').onchange = e => { S.opts.snowMask = e.target.checked; };
+  try { S.opts.near = localStorage.getItem('ridgeline.near') !== '0'; } catch { /* default on */ }
+  $('cNear').checked = S.opts.near;
+  $('cNear').onchange = e => {
+    S.opts.near = e.target.checked;
+    try { localStorage.setItem('ridgeline.near', S.opts.near ? '1' : '0'); } catch { /* not kept */ }
+    if (S.origin && S.pack) { S.nearTried = null; setViewpoint(S.origin.lat, S.origin.lon); }
+  };
+  $('nearSave').onclick = saveNearHere;
+  $('nearDel').onclick = async () => { await unpin('here'); nearInfo(); };
   $('cLines').onchange = e => { S.opts.runLines = e.target.checked; };
   $('cPeaks').onchange = e => { S.opts.peaks = e.target.checked; };
   $('cChair').onchange = e => { S.chair = e.target.checked; if (S.origin) setViewpoint(S.origin.lat, S.origin.lon); };

@@ -180,7 +180,7 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1119.0458-0b12c9f</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1119.0529-0ac4132</span></div>
 </div>
 
 <div id="legend" hidden>
@@ -288,6 +288,10 @@
         <label for="addName">Name</label>
         <input id="addName" type="text" maxlength="40" autocomplete="off">
       </div>
+      <div class="row" id="addDetailRow" hidden>
+        <label>Terrain detail</label>
+        <div class="seg two" id="addDetail"><button data-d="10" aria-pressed="true">10 m</button><button data-d="1" aria-pressed="false">+ 1 m middle</button></div>
+      </div>
       <div class="two"><button class="btn go" id="addGo">Download</button><button class="btn" id="addCancel">Cancel</button></div>
     </div>
     <div id="addProg" hidden>
@@ -296,6 +300,9 @@
       <button class="btn" id="addStop">Cancel</button>
     </div>
     <p class="legend" id="addErr"></p>
+    <label class="sw" style="margin-top:14px"><span>1 m terrain nearby<small>USGS lidar, US only: fetched in the background for the ground close to you or the photo spot. The 10 m map shows until it arrives.</small></span><input id="cNear" type="checkbox" checked></label>
+    <div class="two"><button class="btn" id="nearSave">Save 1 m here</button><button class="btn danger" id="nearDel">Delete saved 1 m</button></div>
+    <p class="legend" id="nearInfo"></p>
     <p class="legend" id="storage"></p>
   </div>
 
@@ -335,7 +342,7 @@
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
       <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. The map for setting a photo's spot loads satellite or topographic pictures of the area on screen from Esri or OpenTopoMap. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1119.0458-0b12c9f</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1119.0529-0ac4132</span></p>
     </details>
   </div>
 </div>
@@ -380,10 +387,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1119.0458-0b12c9f</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1119.0529-0ac4132</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1119.0458-0b12c9f"></script>
+<script type="module" src="js/main.js?v=1119.0529-0ac4132"></script>
 </body>
 </html>

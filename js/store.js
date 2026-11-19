@@ -139,3 +139,7 @@ export async function removeArea(area) {
   await idb('readwrite', s => s.delete(IDBKeyRange.bound(`${area.id}/`, `${area.id}/\uffff`))).catch(() => {});
   if (area.custom) await put('custom', ((await get('custom')) || []).filter(a => a.id !== area.id));
 }
+
+/** Raw access for other saved data (the 1 m terrain tiles): read, write, delete by key. */
+export const getFile = get, putFile = put;
+export const delFile = key => idb('readwrite', s => s.delete(key)).then(() => true, () => false);
