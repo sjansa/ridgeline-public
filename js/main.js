@@ -1,21 +1,21 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1118.1807-8fd4651';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1118.1807-8fd4651';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1118.1807-8fd4651';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1118.1807-8fd4651';
-import { renderSim } from './sim.js?v=1118.1807-8fd4651';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1118.1807-8fd4651';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1118.1807-8fd4651';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1118.1807-8fd4651';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1118.1807-8fd4651';
-import { pickOnMap } from './mappick.js?v=1118.1807-8fd4651';
-import { relocate } from './relocate.js?v=1118.1807-8fd4651';
-import { parseExif } from './exif.js?v=1118.1807-8fd4651';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1118.1807-8fd4651';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1118.1807-8fd4651';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1118.1807-8fd4651';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1119.0458-0b12c9f';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1119.0458-0b12c9f';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1119.0458-0b12c9f';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1119.0458-0b12c9f';
+import { renderSim } from './sim.js?v=1119.0458-0b12c9f';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1119.0458-0b12c9f';
+import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1119.0458-0b12c9f';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1119.0458-0b12c9f';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1119.0458-0b12c9f';
+import { pickOnMap } from './mappick.js?v=1119.0458-0b12c9f';
+import { relocate } from './relocate.js?v=1119.0458-0b12c9f';
+import { parseExif } from './exif.js?v=1119.0458-0b12c9f';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1119.0458-0b12c9f';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1119.0458-0b12c9f';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1119.0458-0b12c9f';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {

@@ -126,8 +126,11 @@ export function gridBilinear(g, arr, lon, lat, cap) {
 
 /** Fine grid over the resorts, coarse grid for the distant skyline. */
 export class Terrain {
-  constructor(fine, coarse) { this.fine = fine; this.coarse = coarse; }
+  /** near (optional): a small, very fine grid around the viewer (1 m lidar), used first. */
+  constructor(fine, coarse, near = null) { this.fine = fine; this.coarse = coarse; this.near = near; }
   elev(lon, lat) {
+    const zn = this.near ? this.near.sample(lon, lat) : NaN;
+    if (zn === zn) return zn;
     const z = this.fine.sample(lon, lat);
     return z === z ? z : this.coarse.sample(lon, lat);
   }
@@ -169,8 +172,11 @@ export function buildPano(terrain, lat0, lon0, opts = {}) {
   if (!(z0 === z0)) throw new Error('Viewpoint is outside the terrain pack.');
   const hEye = opts.eyeAlt != null ? Math.max(opts.eyeAlt, z0 + 0.5) : z0 + (opts.eye ?? 1.7);
 
+  // with a near grid (1 m), 1 m steps across it, then the usual
+  const near = terrain.near && terrain.near.contains(lon0, lat0) ? terrain.near : null;
+  const nearR = near ? Math.min(near.cellE * (near.cols - 1), near.cellN * (near.rows - 1)) / 2 : 0;
   const ds = [];
-  for (let d = 2; d < maxDist; d += Math.max(stepMin, d * stepK)) ds.push(d);
+  for (let d = near ? 1 : 2; d < maxDist; d += d < nearR ? Math.min(near.cellE, near.cellN) : Math.max(stepMin, d * stepK)) ds.push(d);
   const nd = ds.length;
   const dist = new Float32Array(ds), drop = new Float32Array(nd);
   for (let k = 0; k < nd; k++) drop[k] = dist[k] * dist[k] / (2 * R_EFF);
@@ -196,7 +202,8 @@ export function buildPano(terrain, lat0, lon0, opts = {}) {
       const d = dist[k], e = d * sa, n = d * ca;
       const lon = lon0 + e * kLon * (1 + n * tOverM);
       const lat = lat0 + n * kLat - e * e * k2;
-      let z = fineLeft ? NaN : fine.sample(lon, lat);
+      let z = d < nearR ? near.sample(lon, lat) : NaN;
+      if (!(z === z)) z = fineLeft ? NaN : fine.sample(lon, lat);
       if (!(z === z)) {
         // A ray that has left the fine grid never re-enters it (convex bbox),
         // unless the viewer itself stands outside it.

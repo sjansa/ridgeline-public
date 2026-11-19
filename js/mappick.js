@@ -7,7 +7,7 @@
 // pin can go anywhere, not just on the maps the phone has: the caller offers
 // to download the area around a spot outside them.
 
-import { CLASS_COLOR } from './runs.js?v=1118.1807-8fd4651';
+import { CLASS_COLOR } from './runs.js?v=1119.0458-0b12c9f';
 
 const LIFT = '#9b4dff';
 const TAP_PX = 12;           // how far off a fingertip lands, CSS pixels: the pick's uncertainty
