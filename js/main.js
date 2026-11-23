@@ -1,22 +1,25 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1119.0529-0ac4132';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1119.0529-0ac4132';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1119.0529-0ac4132';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1119.0529-0ac4132';
-import { renderSim } from './sim.js?v=1119.0529-0ac4132';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1119.0529-0ac4132';
-import { Shader, buildScene, drawOverlay, aimLifts } from './render.js?v=1119.0529-0ac4132';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1119.0529-0ac4132';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1119.0529-0ac4132';
-import { pickOnMap } from './mappick.js?v=1119.0529-0ac4132';
-import { relocate } from './relocate.js?v=1119.0529-0ac4132';
-import { parseExif } from './exif.js?v=1119.0529-0ac4132';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1119.0529-0ac4132';
-import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1119.0529-0ac4132';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1119.0529-0ac4132';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1119.0529-0ac4132';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1123.1514-aebec47';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1123.1514-aebec47';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1123.1514-aebec47';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1123.1514-aebec47';
+import { renderSim } from './sim.js?v=1123.1514-aebec47';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1123.1514-aebec47';
+import { LiftRide } from './liftride.js?v=1123.1514-aebec47';
+import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1123.1514-aebec47';
+import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1123.1514-aebec47';
+import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1123.1514-aebec47';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1123.1514-aebec47';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1123.1514-aebec47';
+import { pickOnMap } from './mappick.js?v=1123.1514-aebec47';
+import { relocate } from './relocate.js?v=1123.1514-aebec47';
+import { parseExif } from './exif.js?v=1123.1514-aebec47';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1123.1514-aebec47';
+import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1123.1514-aebec47';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1123.1514-aebec47';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1123.1514-aebec47';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -59,6 +62,7 @@ const S = {
   locked: false, misses: 0, settled: 0, lastSolve: 0, holdUntil: 0, lastSol: null,
   demo: { yaw: 170, pitch: 8, err: { yaw: 9, pitch: -1.6, roll: 1.3, fScale: 0.93, k1: 0.03 }, dirty: true, dragging: false },
   gps: null, spots: [], view: { sw: 1, sh: 1, fw: 1, fh: 1, dpr: 1 },
+  places: loadPlaces(), route: null, ride: null, net: null, maxCls: 2, avoid: [],
 };
 
 const video = $('video'), glCanvas = $('gl'), ovCanvas = $('ov');
@@ -67,6 +71,7 @@ const simCanvas = document.createElement('canvas'), simCtx = simCanvas.getContex
 const photoCanvas = document.createElement('canvas');
 const anaCanvas = document.createElement('canvas'), anaCtx = anaCanvas.getContext('2d', { willReadFrequently: true });
 const orient = new Orientation();
+let liftRide = null;
 let shader, stopGps = null, stream = null, photoPano = null;
 
 function status(text, cls = '') {
@@ -100,6 +105,9 @@ async function useArea(area) {
     S.own = buildOwnership(pack.terrain.fine, S.prep.runs);
     S.slope = buildSlope(pack.terrain.fine);
     S.pano = S.scene = S.model = null; S.origin = null;
+    S.net = null; if (S.route) endRoute();
+    liftRide = new LiftRide(S.prep.lifts); S.ride = null; syncRide();
+    S.avoid = loadAvoid(area.id);
     orient.declination = pack.meta.declination ?? 0;
     $('attrib').textContent = pack.meta.attribution;
     try { localStorage.setItem('ridgeline.area', area.id); } catch { /* not remembered */ }
@@ -330,6 +338,8 @@ function setViewpoint(lat, lon) {
       const chains = chainCrests(pano);
       S.pano = pano; S.model = alignModel(pano, chains); S.scene = buildScene(pano, chains, S.prep);
       S.origin = { lat, lon };
+      refreshScene();
+      if (S.route && S.mode !== 'live') updateRoute(S.origin);
       if (S.mode === 'live' && S.gps) aimFromFix(S.gps);
       else if (S.mode === 'photo') S.scene.acc = S.photoAcc || 0;
       shader?.setPano(pano, S.prep.runs);
@@ -549,6 +559,7 @@ function resetAlignment() {
 
 function stopLive() {
   orient.stop(); stopGps?.(); stopGps = null;
+  liftRide?.end(); S.ride = null; syncRide();
   stream?.getTracks().forEach(t => t.stop()); stream = null;
 }
 
@@ -597,6 +608,13 @@ function useSpot() {
 
 function onFix(fix) {
   S.gps = fix;
+  if (S.mode === 'live' && liftRide) {
+    const was = S.ride?.lift.index;
+    S.ride = liftRide.update(fix); syncRide();
+    // getting on or off moves the eye between the snow and the chair
+    if (S.ride?.lift.index !== was && S.origin && !S.building && !S.switching) setViewpoint(fix.lat, fix.lon);
+  }
+  if (S.route && S.mode === 'live' && S.net) updateRoute(fix);
   if (S.mode !== 'live' || S.building || S.switching) return;
   if (!S.pack.terrain.fine.contains(fix.lon, fix.lat) && areaAt(S.catalog, fix.lat, fix.lon)) {
     // walked (or drove) into another area: fetch its map, then carry on
@@ -615,7 +633,7 @@ function aimFromFix(fix) {
   if (!S.scene || !(fix.lat === fix.lat)) return;
   const z = S.pack.terrain.elev(fix.lon, fix.lat);
   if (!(z === z)) return;
-  aimLifts(S.scene, fix.lat, fix.lon, z + (S.chair ? 9 : 1.7), fix.acc || 0);
+  aimLifts(S.scene, fix.lat, fix.lon, S.ride ? Math.max(z + 1.7, S.ride.cableZ) : z + (S.chair ? 9 : 1.7), fix.acc || 0);
 }
 
 async function loadPhoto(file) {
@@ -675,7 +693,13 @@ function photoPosText(how) {
 // ------------------------------------------- photo: fix a line, move the spot
 
 /** Eye height above the ground: a chair rider sits higher; a photo may have been taken from above the ground. */
-const eyeHeight = () => (S.chair ? 9 : 1.7) + (S.mode === 'photo' ? S.photoUp || 0 : 0);
+const eyeHeight = () => {
+  if (S.mode === 'live' && S.ride && S.gps) {
+    const z = S.pack.terrain.elev(S.gps.lon, S.gps.lat);
+    if (z === z) return Math.max(1.7, S.ride.cableZ - z);
+  }
+  return (S.chair ? 9 : 1.7) + (S.mode === 'photo' ? S.photoUp || 0 : 0);
+};
 
 function setFix(on) {
   S.fixing = !!on && S.mode === 'photo';
@@ -782,6 +806,286 @@ function usePhotoSpot(got) {
   S.photoNote = `Spot set on the map (±${Math.round(got.acc)} m); searching every direction for the skyline.${S.photoLensNote || ''}`;
   photoPosText('map');
   setViewpoint(got.lat, got.lon);
+}
+
+// ------------------------------------------------------------ spots and routes
+
+const mk = (tag, cls = '', text = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+const placeView = () => S.places.map(p => ({ ...p, emoji: ICONS[p.icon]?.emoji || '📍' }));
+const slopeAt = (lon, lat) => { const c = S.pack.terrain.fine.cell(lon, lat); return c < 0 ? NaN : S.slope[c]; };
+const network = () => (S.net ||= buildNetwork(S.prep, S.pack.terrain, slopeAt));
+/** Where you are: the GPS fix in camera mode, else the spot you are looking from. */
+const hereNow = () => (S.mode === 'live' && S.gps ? { lat: S.gps.lat, lon: S.gps.lon } : S.origin);
+const fmtM = m => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.max(10, Math.round(m / 10) * 10)} m`);
+const fmtT = t => (t < 90 ? '1 min' : t < 3600 ? `${Math.round(t / 60)} min` : `${Math.floor(t / 3600)} h ${Math.round((t % 3600) / 60)} min`);
+const flatM = (a, b) => Math.hypot((b.lat - a.lat) * 110540, (b.lon - a.lon) * 111320 * Math.cos(a.lat * D2R));
+const placeMsg = t => { $('placeMsg').textContent = t; };
+
+/** Spots and the route in the 3D view, after either changes. */
+function refreshScene() {
+  if (!S.scene || !S.pano) return;
+  scenePlaces(S.scene, S.pano, placeView(), (lon, lat) => S.pack.terrain.elev(lon, lat));
+  sceneRoute(S.scene, S.pano, S.route?.r.pts || null);
+}
+function storePlaces() {
+  if (!savePlaces(S.places)) placeMsg('Could not save spots on this phone.');
+  listPlaces(); refreshScene();
+}
+
+function listPlaces() {
+  const box = $('places'), here = hereNow();
+  if (!S.places.length) { box.replaceChildren(mk('p', 'legend', 'No spots yet. Save where you parked, or where to meet.')); return; }
+  box.replaceChildren(...S.places.map(p => {
+    const row = mk('div', 'place'), txt = mk('div');
+    const ico = mk('span', 'ico', ICONS[p.icon]?.emoji || '📍');
+    let sub = '';
+    if (here) {
+      const d = flatM(here, p), z0 = S.pack.terrain.elev(here.lon, here.lat), z1 = S.pack.terrain.elev(p.lon, p.lat), dz = z1 - z0;
+      sub = fmtM(d) + (dz === dz && Math.abs(dz) >= 10 ? ` · ${dz > 0 ? '↑' : '↓'}${Math.round(Math.abs(dz))} m` : '');
+    }
+    txt.append(mk('b', '', p.name), mk('small', '', sub || `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`));
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    arrow.setAttribute('viewBox', '0 0 24 24'); arrow.classList.add('arrow'); arrow.dataset.id = p.id;
+    arrow.innerHTML = '<path d="M12 3l6 16-6-4-6 4z" fill="currentColor"/>';
+    const go = mk('button', 'btn go', 'Route'), share = mk('button', 'btn', 'Share'), edit = mk('button', 'btn', 'Edit');
+    go.onclick = () => startRoute({ kind: 'place', lat: p.lat, lon: p.lon, name: p.name, id: p.id });
+    share.onclick = () => sharePlace(p);
+    edit.onclick = () => openPlaceForm(p, p);
+    row.append(ico, txt, arrow, go, share);
+    row.append(edit);
+    return row;
+  }));
+  syncArrows();
+}
+/** Point each spot's arrow at it, relative to where the view faces. */
+function syncArrows() {
+  const here = hereNow();
+  if (!here || $('places').closest('.pane').hidden) return;
+  const hd = yprFromRot(S.cam.R).yaw;
+  for (const a of $('places').querySelectorAll('.arrow')) {
+    const p = S.places.find(q => q.id === a.dataset.id);
+    if (!p) continue;
+    const b = Math.atan2((p.lon - here.lon) * Math.cos(here.lat * D2R), p.lat - here.lat) / D2R;
+    a.style.transform = `rotate(${(b - hd).toFixed(1)}deg)`;
+  }
+}
+
+let editing = null;
+function openPlaceForm(pos, existing = null) {
+  editing = { lat: pos.lat, lon: pos.lon, id: existing?.id || null, icon: existing?.icon || pos.icon || 'car' };
+  $('placeName').value = existing?.name || '';
+  $('placeName').placeholder = `e.g. ${ICONS[editing.icon].name}`;
+  const seg = $('placeIcon');
+  seg.replaceChildren(...Object.entries(ICONS).map(([k, v]) => {
+    const b = mk('button', '', `${v.emoji} ${v.name}`);
+    b.dataset.icon = k; b.setAttribute('aria-pressed', k === editing.icon);
+    b.onclick = () => { editing.icon = k; for (const o of seg.children) o.setAttribute('aria-pressed', o === b); $('placeName').placeholder = `e.g. ${v.name}`; };
+    return b;
+  }));
+  $('placeDel').hidden = !existing; $('placeDel').textContent = 'Delete this spot'; $('placeDel').dataset.armed = '';
+  $('placeForm').hidden = false;
+  $('sheet').hidden = false; showTab('go');
+  $('placeForm').scrollIntoView({ block: 'nearest' });
+}
+function closePlaceForm() { editing = null; $('placeForm').hidden = true; }
+function savePlaceForm() {
+  if (!editing) return;
+  const name = $('placeName').value.trim() || ICONS[editing.icon].name;
+  const old = editing.id && S.places.find(p => p.id === editing.id);
+  if (old) { old.name = name; old.icon = editing.icon; } else S.places.push(newPlace(editing.lat, editing.lon, name, editing.icon));
+  closePlaceForm(); storePlaces();
+  placeMsg(old ? 'Spot updated.' : `Saved "${name}".`);
+}
+function saveHere() {
+  if (S.mode === 'live') {
+    if (S.gps) { openPlaceForm(S.gps); return; }
+    placeMsg('Finding your position…');
+    navigator.geolocation.getCurrentPosition(p => { placeMsg(''); openPlaceForm({ lat: p.coords.latitude, lon: p.coords.longitude }); },
+      () => placeMsg('Could not get your position. Use Map… to place the spot.'), { enableHighAccuracy: true, timeout: 15000 });
+    return;
+  }
+  if (!S.origin) { placeMsg('Choose a viewpoint first, or use Map….'); return; }
+  openPlaceForm(S.origin);
+  placeMsg('Outside camera mode this saves the viewpoint you are looking from.');
+}
+async function placesMap() {
+  if (!S.pack) return;
+  const o = hereNow() || { lat: (S.pack.terrain.fine.north + S.pack.terrain.fine.south) / 2, lon: (S.pack.terrain.fine.west + S.pack.terrain.fine.east) / 2 };
+  $('sheet').hidden = true;
+  $('pickHint').textContent = 'Your spots' + (S.route ? ' and route' : '') + '. To add a spot, tap or long-press where it is, then Save. Drag to move, pinch to zoom.';
+  const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.mode === 'live' && S.gps ? S.gps : null, null, null, geocode,
+    { places: placeView(), route: S.route?.r.pts || null, okText: 'Save spot here', photo: false, long: true });
+  if (got && got !== 'photo') openPlaceForm({ ...got, icon: 'pin' });
+  else { $('sheet').hidden = false; showTab('go'); }
+}
+async function sharePlace(p) {
+  const l = shareLinks(p), text = `${ICONS[p.icon]?.emoji || ''} ${p.name}\nOpen in Ridgeline: ${l.app}\nOn a map: ${l.map}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: p.name, text }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(text); placeMsg('Link copied: paste it into a message.'); } catch { prompt('Copy this link:', l.app); }
+}
+function addShared(g, via = '') {
+  if (S.places.some(p => Math.abs(p.lat - g.lat) < 1e-5 && Math.abs(p.lon - g.lon) < 1e-5)) { status(`"${g.name}" is already in your spots.`); return; }
+  S.places.push(newPlace(g.lat, g.lon, g.name, g.icon));
+  storePlaces();
+  status(`Added the shared spot "${g.name}"${via}. Menu > Go lists it.`, 'ok');
+}
+async function pasteShared() {
+  let t = '';
+  try { t = await navigator.clipboard.readText(); } catch { /* ask below */ }
+  let g = parseShare(t);
+  if (!g) { t = prompt('Paste the spot link someone sent you:') || ''; g = parseShare(t); }
+  if (!g) { if (t) placeMsg('That is not a Ridgeline spot link.'); return; }
+  addShared(g);
+}
+
+// -- route options: hardest runs allowed, and lifts and runs to stay off (per map area)
+const avoidKey = id => `ridgeline.avoid.${id}`;
+function loadAvoid(id) { try { const v = JSON.parse(localStorage.getItem(avoidKey(id)) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
+function storeAvoid() { try { localStorage.setItem(avoidKey(S.area.id), JSON.stringify(S.avoid)); } catch { /* not kept */ } }
+/** Every mapped piece of each avoided lift or run. */
+function avoidKeys() {
+  const set = new Set();
+  for (const a of S.avoid) for (const f of a.kind === 'lift' ? S.prep.lifts : S.prep.runs) if (f.name === a.name) set.add(featKey(a.kind, f.index));
+  return set;
+}
+function listAvoid() {
+  $('avoidList').replaceChildren(...S.avoid.map((a, i) => {
+    const b = mk('button', 'btn', `✕ ${a.name}`);
+    b.setAttribute('aria-label', `Stop avoiding ${a.name}`);
+    b.onclick = () => { S.avoid.splice(i, 1); storeAvoid(); listAvoid(); replanIfRouting(); };
+    return b;
+  }));
+}
+/** Named runs (and lifts) matching some text, one entry per name. */
+function findFeatures(q, withLifts) {
+  q = q.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const out = new Map();
+  const add = (kind, f) => {
+    if (!f.name || !f.name.toLowerCase().includes(q)) return;
+    const k = `${kind}:${f.name}`;
+    const e = out.get(k) || { kind, name: f.name, cls: f.cls || 0, indices: [] };
+    e.indices.push(f.index); e.cls = Math.max(e.cls, f.cls || 0);
+    out.set(k, e);
+  };
+  if (withLifts) for (const l of S.prep.lifts) add('lift', l);
+  for (const r of S.prep.runs) if (!r.area) add('run', r);
+  return [...out.values()].sort((a, b) => a.name.toLowerCase().indexOf(q) - b.name.toLowerCase().indexOf(q) || a.name.localeCompare(b.name)).slice(0, 8);
+}
+const hitLabel = (e, b) => { b.textContent = e.name; b.append(mk('small', '', ` ${e.kind === 'lift' ? 'lift' : CLS_WORD[e.cls]}`)); return b; };
+function setMaxCls(c) {
+  S.maxCls = c;
+  for (const b of $('maxCls').children) b.setAttribute('aria-pressed', +b.dataset.c === c);
+  try { localStorage.setItem('ridgeline.maxCls', c); } catch { /* not kept */ }
+}
+function replanIfRouting() { if (S.route) startRoute(S.route.target, true); }
+
+// -- routing
+const ROUTE_FAIL = {
+  start: () => (S.mode === 'live' ? 'You are not near a mapped run or lift.' : 'This viewpoint is not near a mapped run or lift.'),
+  end: t => (t.kind === 'run' ? `${t.name} is not joined to the mapped lifts and runs.` : `${t.name} is not near a mapped run or lift.`),
+  'harder-end': t => `${t.name} is harder than your route setting (${CLS_WORD[S.maxCls]}); change it under Route options.`,
+  none: () => 'No route found on the mapped runs and lifts.',
+};
+function startRoute(target, quiet = false) {
+  // on a lift there is no getting off until the top: plan from there
+  const from = S.ride ? { lat: S.ride.top[0], lon: S.ride.top[1] } : hereNow();
+  if (!from || !S.pack) { placeMsg('Choose where you are first: camera mode with GPS, or a viewpoint.'); return false; }
+  const r = planRoute(network(), from, target, { maxCls: S.maxCls, avoid: avoidKeys() });
+  if (r.fail) {
+    const why = r.fail === 'harder'
+      ? (r.avoided ? `The only way to ${target.name} uses a lift or run you are staying off.` : `No route to ${target.name} on ${CLS_WORD[S.maxCls]} runs or easier; allowing ${CLS_WORD[r.need]} runs finds one.`)
+      : ROUTE_FAIL[r.fail](target);
+    placeMsg(why); status(why, 'bad');
+    if (quiet && S.route) endRoute();
+    return false;
+  }
+  S.route = { target, r, hint: 0, leg: -1, at: performance.now(), said: '' };
+  syncRide();
+  document.body.classList.add('routing');
+  refreshScene();
+  updateRoute(from);
+  showRouteSteps();
+  if (!quiet) { $('sheet').hidden = true; status(`Route to ${target.name}: ${fmtT(r.t)}, ${fmtM(r.len)}.`, 'ok'); }
+  return true;
+}
+/** Riding a lift: hide its line and say which lift it is (the route banner says it when routing). */
+function syncRide() {
+  const r = S.ride;
+  S.opts.hideLift = r ? r.lift.index : -1;
+  document.body.classList.toggle('riding', !!r);
+  $('liftBar').hidden = !r || !!S.route;
+  if (!r) return;
+  $('liftName').textContent = `🚡 On ${r.lift.name || 'a lift'}`;
+  $('liftLeft').textContent = `${fmtM(r.left)} to the top · about ${fmtT(r.tLeft)}`;
+}
+function endRoute() {
+  S.route = null;
+  document.body.classList.remove('routing');
+  $('routeBar').hidden = true; syncRide();
+  refreshScene(); showRouteSteps();
+}
+function speak(text) {
+  if (!$('cSpeak').checked || !window.speechSynthesis) return;
+  try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* no voice */ }
+}
+/** Follow along: which step you are on, how far is left, and plan again once well off the route. */
+function updateRoute(pos) {
+  const R = S.route;
+  if (!R || !pos || !S.net) return;
+  let pr = routeProgress(S.net, R.r, pos.lat, pos.lon, R.hint);
+  // riding a lift the route starts at the top of: nothing to do but ride
+  const top = S.ride && R.r.pts.length && routeProgress(S.net, R.r, S.ride.top[0], S.ride.top[1], 0);
+  if (pr.off > OFF_ROUTE_M && top && top.i === 0 && top.off < OFF_ROUTE_M) {
+    const first = R.r.legs[0], name = S.ride.lift.name || 'the lift';
+    $('routeStep').textContent = `Ride ${name} to the top`;
+    $('routeThen').textContent = `Then ${legText(first)} · ${fmtT(S.ride.tLeft + R.r.t)} to ${R.target.name}`;
+    $('routeBar').hidden = false;
+    if (R.leg !== -2) { R.leg = -2; speak(`Ride ${name} to the top, then ${legText(first)}.`); }
+    return;
+  }
+  if (pr.off > OFF_ROUTE_M && performance.now() - R.at > 4000) {
+    R.at = performance.now();
+    const from = S.ride ? { lat: S.ride.top[0], lon: S.ride.top[1] } : pos;
+    const r = planRoute(S.net, from, R.target, { maxCls: S.maxCls, avoid: avoidKeys() });
+    if (!r.fail) {
+      R.r = r; R.hint = 0; R.leg = -1;
+      refreshScene(); showRouteSteps();
+      pr = routeProgress(S.net, r, pos.lat, pos.lon, 0);
+      speak('Route updated.');
+    }
+  }
+  R.hint = pr.i;
+  if (pr.toEnd < ARRIVED_M) {
+    const msg = R.target.kind === 'run' ? `You are at ${R.target.name}.` : `You have arrived at ${R.target.name}.`;
+    status(msg, 'ok'); speak(msg); endRoute();
+    return;
+  }
+  const legs = R.r.legs, leg = legs[pr.leg], next = legs[pr.leg + 1];
+  const step = leg.kind === 'lift' ? `${legText(leg)} to the top` : `${legText(leg)}${leg.kind === 'run' ? ` · ${fmtM(pr.left)}` : ''}`;
+  $('routeStep').textContent = (leg.kind === 'traverse' ? '⚠ ' : '') + step;
+  $('routeThen').textContent = (pr.off > OFF_ROUTE_M ? `Off the route by ${fmtM(pr.off)} · ` : '')
+    + (next ? `Then ${legText(next)} · ` : '') + `${fmtT(pr.tLeft)} to ${R.target.name}`;
+  $('routeBar').hidden = false;
+  if (pr.leg !== R.leg) {
+    R.leg = pr.leg;
+    speak(next ? `${legText(leg)}, then ${legText(next)}.` : `${legText(leg)} to ${R.target.name}.`);
+    if (!$('sheet').hidden) showRouteSteps();
+  }
+}
+function showRouteSteps() {
+  const R = S.route;
+  $('routeNow').hidden = !R;
+  if (!R) return;
+  $('routeSum').textContent = `To ${R.target.name}: about ${fmtT(R.r.t)}, ${fmtM(R.r.len)}, hardest runs ${CLS_WORD[S.maxCls]}.`;
+  $('routeSteps').replaceChildren(...R.r.legs.map((l, k) => {
+    const li = mk('li', k === R.leg ? 'now' : '', legText(l));
+    const note = l.kind === 'lift' ? ` ${fmtM(l.len)}, ↑${Math.round(-l.drop)} m` : l.kind === 'traverse' ? ' over open ground, not a mapped run' : ` ${fmtM(l.len)}${l.drop > 10 ? `, ↓${Math.round(l.drop)} m` : ''}`;
+    li.append(mk('small', '', note));
+    return li;
+  }));
 }
 
 // -------------------------------------------------------------- frame loop
@@ -917,7 +1221,7 @@ function tick(now) {
   // a photo does not move: once it has settled, further solves can only disturb it
   const still = S.mode === 'photo' && S.settled >= 3;
   if (S.pano && !still && now - S.lastSolve > (S.locked ? 1800 : 900)) trySolve(now);
-  if (!$('sheet').hidden && now - (S.lastDebug || 0) > 400) { S.lastDebug = now; debug(); }
+  if (!$('sheet').hidden && now - (S.lastDebug || 0) > 400) { S.lastDebug = now; debug(); syncArrows(); }
 }
 
 function debug() {
@@ -962,7 +1266,9 @@ function telemetry() {
     },
     photo: S.mode === 'photo' ? { fix: S.photoFix, acc: S.photoAcc, up: S.photoUp, compass: S.photoHasCompass, note: S.photoNote,
       pins: (S.anchors || []).map(p => ({ name: p.name, lat: r(p.lat, 6), lon: r(p.lon, 6), z: r(p.z, 1), u: r(p.u, 4), v: r(p.v, 4) })) } : null,
-    near: S.near, layers: S.opts, scene: S.scene ? { lifts: S.scene.lifts.length, runs: S.scene.runs.length, peaks: S.scene.peaks.length, liftAcc: S.scene.acc } : null,
+    near: S.near, layers: S.opts, places: S.places.length,
+    ride: S.ride ? { lift: S.ride.lift.name, left: Math.round(S.ride.left), speed: +S.ride.speed.toFixed(1) } : null,
+    route: S.route ? { to: S.route.target.kind, steps: S.route.r.legs.map(legText), min: Math.round(S.route.r.t / 60), leg: S.route.leg, maxCls: S.maxCls, avoid: S.avoid.length } : null, scene: S.scene ? { lifts: S.scene.lifts.length, runs: S.scene.runs.length, peaks: S.scene.peaks.length, liftAcc: S.scene.acc } : null,
     build: { ms: r(S.buildMs, 0) }, ua: navigator.userAgent,
   };
 }
@@ -1098,6 +1404,7 @@ function showTab(name) {
   for (const b of $('tabs').children) b.setAttribute('aria-selected', b.dataset.tab === name);
   for (const p of document.querySelectorAll('.pane')) p.hidden = p.dataset.pane !== name;
   if (name === 'maps') nearInfo();
+  if (name === 'go') { listPlaces(); listAvoid(); showRouteSteps(); }
 }
 
 function wire() {
@@ -1264,6 +1571,47 @@ function wire() {
     catch { $('recText').select(); status('Select all and copy the log by hand.', 'bad'); }
   };
   $('recShare').onclick = () => navigator.share({ title: 'Ridgeline sensor log', text: $('recText').value }).catch(() => {});
+  // spots and routes
+  $('placeHere').onclick = saveHere;
+  $('placeMap').onclick = placesMap;
+  $('routeShow').onclick = placesMap;
+  $('placePaste').onclick = pasteShared;
+  $('placeSave').onclick = savePlaceForm;
+  $('placeCancel').onclick = closePlaceForm;
+  $('placeName').onkeydown = e => { if (e.key === 'Enter') savePlaceForm(); };
+  $('placeDel').onclick = () => {
+    const b = $('placeDel');
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Sure? Tap again'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Delete this spot'; }, 3500); return; }
+    const id = editing?.id;
+    S.places = S.places.filter(p => p.id !== id);
+    if (S.route?.target.id === id) endRoute();
+    closePlaceForm(); storePlaces();
+  };
+  $('runFind').oninput = () => {
+    $('runHits').replaceChildren(...findFeatures($('runFind').value, false).map(e => {
+      const b = hitLabel(e, mk('button', 'btn'));
+      b.onclick = () => { if (startRoute({ kind: 'run', indices: e.indices, name: e.name })) { $('runFind').value = ''; $('runHits').replaceChildren(); } };
+      return b;
+    }));
+  };
+  $('avoidFind').oninput = () => {
+    $('avoidHits').replaceChildren(...findFeatures($('avoidFind').value, true).map(e => {
+      const b = hitLabel(e, mk('button', 'btn'));
+      b.onclick = () => {
+        if (!S.avoid.some(a => a.kind === e.kind && a.name === e.name)) S.avoid.push({ kind: e.kind, name: e.name });
+        storeAvoid(); listAvoid(); $('avoidFind').value = ''; $('avoidHits').replaceChildren(); replanIfRouting();
+      };
+      return b;
+    }));
+  };
+  for (const b of $('maxCls').children) b.onclick = () => { setMaxCls(+b.dataset.c); replanIfRouting(); };
+  let maxCls = 2;
+  try { maxCls = +localStorage.getItem('ridgeline.maxCls') || 2; } catch { /* default blue */ }
+  setMaxCls(Math.min(4, Math.max(1, maxCls)));
+  try { $('cSpeak').checked = localStorage.getItem('ridgeline.speak') === '1'; } catch { /* off */ }
+  $('cSpeak').onchange = e => { try { localStorage.setItem('ridgeline.speak', e.target.checked ? '1' : '0'); } catch { /* not kept */ } };
+  $('routeOpen').onclick = () => { $('sheet').hidden = false; showTab('go'); };
+  $('routeEnd').onclick = $('routeStop').onclick = () => { endRoute(); status('Route ended.'); };
   wireFeedback();
   $('reset').onclick = () => {
     const [w, h] = S.source ? sourceSize() : [0, 0];
@@ -1375,6 +1723,13 @@ boot().then(() => {
   if (q.has('outline')) $('cOutline').click();
   if (q.has('nosnow')) $('cSnow').click();
   if (q.has('alpha')) { $('alpha').value = q.get('alpha'); $('alpha').oninput({ target: $('alpha') }); }
+  // a shared spot: ?spot=lat,lon&name=…&icon=…
+  const shared = q.has('spot') && parseShare(location.href);
+  if (shared) {
+    addShared(shared);
+    q.delete('spot'); q.delete('name'); q.delete('icon');
+    try { history.replaceState(null, '', location.pathname + (q.size ? `?${q}` : '') + location.hash); } catch { /* stays in the address bar */ }
+  }
 }).catch(e => { status(`Could not load the map: ${e.message}`, 'bad'); $('startErr').textContent = `Could not load the map: ${e.message}`; });
 // Test hook: lets a headless run drive the app.
-window.__ridgeline = { S, setMode, setViewpoint, proposeArea };
+window.__ridgeline = { S, setMode, setViewpoint, proposeArea, startRoute, endRoute, updateRoute, network, onFix };

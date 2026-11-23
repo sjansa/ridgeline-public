@@ -7,9 +7,10 @@
 // pin can go anywhere, not just on the maps the phone has: the caller offers
 // to download the area around a spot outside them.
 
-import { CLASS_COLOR } from './runs.js?v=1119.0529-0ac4132';
+import { CLASS_COLOR } from './runs.js?v=1123.1514-aebec47';
 
 const LIFT = '#9b4dff';
+const ROUTE = '#ffd84a';
 const TAP_PX = 12;           // how far off a fingertip lands, CSS pixels: the pick's uncertainty
 const TURN_START = 0.17;     // radians of twist before a pinch starts turning the map too
 
@@ -63,10 +64,13 @@ const tiles = new Map();     // url -> Image, kept across openings; oldest dropp
  * covered(lat, lon): whether a map on the phone covers a spot (the OK button
  * says it will get one otherwise). find(text): resolves to {lat, lon} for a
  * place name, or null.
- * Resolves to {lat, lon, acc} (acc in meters), 'photo' when another photo is
- * wanted, or null when cancelled.
+ * extra: {places: saved spots to draw, route: [[lat, lon]] to highlight,
+ * okText: the OK button's label, photo: false hides "Other photo", long:
+ * true makes a long press drop the pin and finish at once}.
+ * Resolves to {lat, lon, acc} (acc in meters; long: true after a long press),
+ * 'photo' when another photo is wanted, or null when cancelled.
  */
-export function pickOnMap(el, grid, prep, start, prior, view = null, covered = null, find = null) {
+export function pickOnMap(el, grid, prep, start, prior, view = null, covered = null, find = null, extra = {}) {
   const canvas = el.querySelector('canvas'), ctx = canvas.getContext('2d');
   const $ = s => el.querySelector(s);
   const shade = relief(grid);
@@ -79,7 +83,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
   let pin, cx, cy, s = 0.5, th = 0, dpr = 1;
   let type = 'satellite';
   try { const t = localStorage.getItem(TYPE_KEY); if (MAP_TYPES[t]) type = t; } catch { /* default */ }
-  let lines, peaks, priorM, V, R0, R1;
+  let lines, peaks, priorM, V, R0, R1, placesM, routeM;
   /** Put the reference point at (lat, lon), keeping everything where it is on screen. */
   function reframe(lat, lon) {
     const c = cx != null ? toLL(cx, cy) : [start.lat, start.lon], p = pin ? toLL(...pin) : [start.lat, start.lon];
@@ -90,6 +94,8 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
       ...prep.lifts.map(l => ({ pts: l.pts.map(q => toM(q[0], q[1])), color: LIFT, w: 2.4, name: l.name })),
     ];
     peaks = prep.peaks.map(q => ({ ...q, m: toM(q.lat, q.lon) }));
+    placesM = (extra.places || []).map(q => ({ ...q, m: toM(q.lat, q.lon) }));
+    routeM = extra.route ? extra.route.map(q => toM(q[0], q[1])) : null;
     priorM = prior ? toM(prior.lat, prior.lon) : null;
     // the matched view: apex, unit direction (map meters, y south), half angle
     V = view ? { o: toM(view.lat, view.lon), u: [Math.sin(view.yaw * Math.PI / 180), -Math.cos(view.yaw * Math.PI / 180)], half: view.hfov * Math.PI / 360 } : null;
@@ -161,6 +167,12 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
       if (dark && l.run && l.color === CLASS_COLOR[3]) { ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = l.w + 1.6; ctx.stroke(); }
       ctx.strokeStyle = l.color; ctx.lineWidth = l.w; ctx.stroke();
     }
+    if (routeM) {
+      ctx.beginPath();
+      routeM.forEach(([x, y], i) => { const [X, Y] = fwd(x, y); if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); });
+      ctx.strokeStyle = 'rgba(8,16,22,0.75)'; ctx.lineWidth = 8; ctx.stroke();
+      ctx.strokeStyle = ROUTE; ctx.lineWidth = 4.5; ctx.stroke();
+    }
     ctx.font = '600 12px "Barlow Condensed", "Helvetica Neue", Arial, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3;
@@ -174,6 +186,17 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
       ctx.fillStyle = '#e9dcff';
       for (const l of lines) if (l.name) { const m = l.pts[l.pts.length >> 1], [x, y] = fwd(m[0], m[1]); ctx.fillText(l.name, x + 6, y); }
     }
+    // saved spots
+    ctx.font = '600 13px "Barlow Condensed", "Helvetica Neue", Arial, sans-serif';
+    for (const q of placesM) {
+      const [x, y] = fwd(q.m[0], q.m[1]);
+      if (x < -60 || y < -30 || x > w + 60 || y > h + 30) continue;
+      ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.strokeStyle = ROUTE; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.textAlign = 'center'; ctx.fillStyle = '#000'; ctx.fillText(q.emoji || '', x, y + 1);
+      ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.fillText(q.name, x + 15, y);
+    }
+    ctx.font = '600 12px "Barlow Condensed", "Helvetica Neue", Arial, sans-serif';
     ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
     if (V) {
       // the view the skyline match found, and the line of spots that keep it
@@ -212,7 +235,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
     // the compass needle turns with the map
     $('#pickNorth svg').style.transform = `rotate(${th}rad)`;
     const [plat, plon] = toLL(...pin);
-    $('#pickOk').textContent = !covered || covered(plat, plon) ? 'Use this spot' : 'Use · get map';
+    $('#pickOk').textContent = extra.okText || (!covered || covered(plat, plon) ? 'Use this spot' : 'Use · get map');
   }
 
   // Keep the map point under screen point (ax, ay) under (bx, by) after a zoom by f and a turn by dt.
@@ -223,12 +246,24 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
     cx = m[0] - (dx * c + dy * n); cy = m[1] - (-dx * n + dy * c);
   };
   const ptrs = new Map();
-  let tap = null, twist = 0, turning = false;
+  let tap = null, twist = 0, turning = false, longTimer = 0, finish = null;
+  const LONG_MS = 550;
   const local = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   const down = e => {
     canvas.setPointerCapture(e.pointerId);
     ptrs.set(e.pointerId, local(e));
     tap = ptrs.size === 1 ? { p: local(e), t: performance.now() } : null;
+    clearTimeout(longTimer);
+    if (tap) {
+      const t0 = tap;
+      // a long press drops the pin there (and, if asked, finishes with it)
+      longTimer = setTimeout(() => {
+        if (tap !== t0) return;
+        tap = null; pin = inv(...t0.p); redraw();
+        navigator.vibrate?.(15);
+        if (extra.long && finish) { const [lat, lon] = toLL(pin[0], pin[1]); finish({ lat, lon, acc: Math.max(5, TAP_PX / s), long: true }); }
+      }, LONG_MS);
+    }
     if (ptrs.size === 2) { twist = 0; turning = false; }
   };
   const move = e => {
@@ -238,7 +273,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
     const after = [...ptrs.values()];
     if (ptrs.size === 1) {
       gesture(before[0][0], before[0][1], after[0][0], after[0][1], 1, 0);
-      if (tap && Math.hypot(after[0][0] - tap.p[0], after[0][1] - tap.p[1]) > 8) tap = null;
+      if (tap && Math.hypot(after[0][0] - tap.p[0], after[0][1] - tap.p[1]) > 8) { tap = null; clearTimeout(longTimer); }
     } else if (ptrs.size === 2) {
       const [a, b] = before, [a2, b2] = after;
       const f = Math.hypot(b2[0] - a2[0], b2[1] - a2[1]) / Math.max(1, Math.hypot(b[0] - a[0], b[1] - a[1]));
@@ -251,6 +286,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
   };
   const up = e => {
     ptrs.delete(e.pointerId);
+    clearTimeout(longTimer);
     if (!ptrs.size) recenterIfFar();
     if (tap && e.type === 'pointerup' && performance.now() - tap.t < 600) {
       const [x, y] = local(e);
@@ -295,6 +331,7 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
   return new Promise(resolve => {
     const done = res => {
       el.hidden = true;
+      clearTimeout(longTimer); finish = null;
       canvas.onpointerdown = canvas.onpointermove = canvas.onpointerup = canvas.onpointercancel = null;
       canvas.removeEventListener('wheel', wheel);
       $('#pickFind').onsubmit = null;
@@ -313,6 +350,8 @@ export function pickOnMap(el, grid, prep, start, prior, view = null, covered = n
     };
     $('#pickCancel').onclick = () => done(null);
     $('#pickPhoto').onclick = () => done('photo');
+    $('#pickPhoto').hidden = extra.photo === false;
+    finish = done;
     // jump to a place by name, and drop the pin there
     const box = $('#pickPlace');
     $('#pickFind').hidden = !find;

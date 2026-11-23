@@ -1,8 +1,8 @@
 // render.js -- draws the camera frame with run shading (WebGL) and the line
 // work on top of it (2D canvas): ridges, lifts, run centerlines, labels.
 
-import { TAU, panoLook, panoVisible, panoCol, localFrame } from './terrain.js?v=1119.0529-0ac4132';
-import { CLASS_TINT, CLASS_COLOR, slopeColor, SLOPE_SCALES } from './runs.js?v=1119.0529-0ac4132';
+import { TAU, panoLook, panoVisible, panoCol, localFrame } from './terrain.js?v=1123.1514-aebec47';
+import { CLASS_TINT, CLASS_COLOR, slopeColor, SLOPE_SCALES } from './runs.js?v=1123.1514-aebec47';
 
 const VS = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
 // Per pixel: undistort, rotate into the world, look the direction up in the
@@ -250,6 +250,43 @@ export function buildScene(pano, chains, prep) {
   return { lifts, runs, peaks, sky, ridges, na: pano.na, acc: 0 };
 }
 
+/**
+ * The planned route as seen from here: pts [[lat, lon, z]]. Parts behind
+ * terrain are kept (drawn faint) so the way on still shows.
+ */
+export function sceneRoute(scene, pano, pts) {
+  if (!pts) { scene.route = null; return; }
+  const n = pts.length, dirs = new Float32Array(n * 3), vis = new Uint8Array(n), hid = new Uint8Array(n), look = {};
+  for (let i = 0; i < n; i++) {
+    panoLook(pano, pts[i][0], pts[i][1], pts[i][2] + 1, look);
+    dirOf(look.az, look.t, dirs, i * 3);
+    if (look.d < 3) continue;
+    if (panoVisible(pano, look.az, look.t, look.d, 20)) vis[i] = 1; else hid[i] = 1;
+  }
+  // a hidden stretch overlaps its visible neighbors by one point, so the line has no gaps
+  for (let i = 0; i < n; i++) if (vis[i] && ((i > 0 && hid[i - 1] === 1) || (i < n - 1 && hid[i + 1] === 1))) hid[i] = 2;
+  scene.route = { dirs, vis, hid, n };
+}
+
+/**
+ * Saved spots as seen from here: [{p, dir, d (m), dz (m, + is up), vis}].
+ * elev(lon, lat): ground height, NaN where there is no map.
+ */
+export function scenePlaces(scene, pano, places, elev) {
+  const look = {}, out = [];
+  for (const p of places || []) {
+    const g = elev(p.lon, p.lat);
+    if (!(g === g)) continue;
+    panoLook(pano, p.lat, p.lon, g + 2, look);
+    if (look.d < 5 || look.d > 30000) continue;
+    const dir = new Float32Array(3);
+    dirOf(look.az, look.t, dir, 0);
+    out.push({ p, dir, d: look.d, dz: g + 1.7 - pano.hEye, vis: panoVisible(pano, look.az, look.t, look.d, 25) });
+  }
+  out.sort((a, b) => a.d - b.d);
+  scene.places = out;
+}
+
 // A lift nearer than this many GPS errors could be anywhere in the picture: leave it out.
 const LIFT_MIN_ACC_RATIO = 3;
 
@@ -276,6 +313,9 @@ const TAG_COLOR = ['#000', 'rgba(24,150,66,0.94)', 'rgba(28,104,214,0.94)', 'rgb
 
 // Lifts: purple, a color no run rating uses. Drawn after the runs so they stay on top.
 const LIFT_COLOR = '#9b4dff';
+// The planned route and saved spots: gold, which nothing else uses.
+export const ROUTE_COLOR = '#ffd84a';
+const PLACE_COLOR = '#ffd84a';
 
 function pill(ctx, x, y, text, o) {
   const padX = 7 * o.s, h = 20 * o.s, icon = o.icon ? 16 * o.s : 0;
@@ -412,6 +452,8 @@ export function drawOverlay(ctx, scene, cam, view, o) {
   }
   if (o.lifts) {
     for (const l of scene.lifts) {
+      // the lift being ridden runs straight overhead: leave it out
+      if (l.f.index === o.hideLift) { l.ok.fill(0); continue; }
       for (let i = 0; i < l.ok.length; i++) l.ok[i] = l.vis[i] && l.dist[i] > LIFT_MIN_ACC_RATIO * scene.acc ? 1 : 0;
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4.6 * s;
       stroke(l.dirs, l.ok.length, l.ok);
@@ -432,6 +474,21 @@ export function drawOverlay(ctx, scene, cam, view, o) {
     }
   }
 
+  if (scene.route) {
+    // the planned route on top of everything: the way on behind a ridge faint and dashed
+    const r = scene.route;
+    ctx.setLineDash([7 * s, 6 * s]);
+    ctx.strokeStyle = 'rgba(8,16,22,0.35)'; ctx.lineWidth = 4.4 * s;
+    stroke(r.dirs, r.n, r.hid);
+    ctx.strokeStyle = 'rgba(255,216,74,0.8)'; ctx.lineWidth = 2.2 * s;
+    stroke(r.dirs, r.n, r.hid);
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(8,16,22,0.7)'; ctx.lineWidth = 8 * s;
+    stroke(r.dirs, r.n, r.vis);
+    ctx.strokeStyle = ROUTE_COLOR; ctx.lineWidth = 4.4 * s;
+    stroke(r.dirs, r.n, r.vis);
+  }
+
   o.taken = []; o.s = s; o.sw = sw; o.sh = sh;
   ctx.font = `600 ${12 * s}px "Barlow Condensed", "Helvetica Neue", Arial, sans-serif`;
   ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
@@ -449,6 +506,23 @@ export function drawOverlay(ctx, scene, cam, view, o) {
         n++;
       }
     }
+  }
+  if (scene.places) {
+    // saved spots first, so names never push them off: dimmed when a ridge is in the way
+    ctx.font = `600 ${13 * s}px "Barlow Condensed", "Helvetica Neue", Arial, sans-serif`;
+    for (const q of scene.places) {
+      if (!P(q.dir, 0) || !inView(-10)) continue;
+      const x = pt[0], y = pt[1], dist = q.d >= 1000 ? `${(q.d / 1000).toFixed(1)} km` : `${Math.round(q.d / 10) * 10} m`;
+      const dz = Math.abs(q.dz) < 10 ? '' : ` · ${q.dz > 0 ? '↑' : '↓'}${Math.round(Math.abs(q.dz))} m`;
+      ctx.fillStyle = q.vis ? PLACE_COLOR : 'rgba(255,255,255,0.6)'; ctx.strokeStyle = 'rgba(8,16,22,0.8)'; ctx.lineWidth = 1.5 * s;
+      ctx.beginPath(); ctx.arc(x, y, 4.5 * s, 0, TAU); ctx.fill(); ctx.stroke();
+      const ly = Math.max(14 * s, y - 30 * s);
+      ctx.strokeStyle = q.vis ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.2 * s;
+      ctx.beginPath(); ctx.moveTo(x, ly + 10 * s); ctx.lineTo(x, y - 4.5 * s); ctx.stroke();
+      pill(ctx, x, ly, `${q.p.emoji || ''} ${q.p.name} · ${dist}${dz}${q.vis ? '' : ' · behind ridge'}`.trim(),
+        { ...o, taken: o.taken, bg: q.vis ? 'rgba(255,255,255,0.94)' : 'rgba(12,20,27,0.9)', fg: q.vis ? '#0c1a22' : '#b7c4cb' });
+    }
+    ctx.font = `600 ${12 * s}px "Barlow Condensed", "Helvetica Neue", Arial, sans-serif`;
   }
   labels.sort((a, b) => a.pri - b.pri);
   for (const l of labels) {

@@ -170,6 +170,35 @@
   #pickFind[hidden] { display: none; }
   #pickPlace { width: 100%; box-sizing: border-box; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(13, 28, 37, 0.92); color: var(--text); font: 500 16px var(--body); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
   #pickCredit { position: absolute; right: calc(var(--sr) + 6px); bottom: calc(var(--sb) + 6px); padding: 2px 6px; border-radius: 6px; background: rgba(12, 20, 27, 0.6); color: #dfe8ed; font: 500 10px/1.3 var(--body); pointer-events: none; }
+  /* Spots and routes */
+  h3.sub { font: 600 15px var(--body); margin: 14px 2px 4px; }
+  .seg.four { grid-template-columns: repeat(4, 1fr); }
+  .seg.four button { padding: 8px 2px; font-size: 14px; }
+  .place { display: grid; grid-template-columns: 30px 1fr auto auto auto; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .place .ico { font-size: 22px; text-align: center; }
+  .place small { display: block; color: var(--dim); }
+  .place .arrow { width: 26px; height: 26px; color: #ffd84a; transition: transform 0.3s; }
+  .place .btn, .hits .btn { width: auto; min-height: 44px; margin: 0; padding: 6px 10px; }
+  .hits { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .hits:empty { display: none; }
+  .hits .btn small { color: var(--dim); font-weight: 500; }
+  #routeSteps { margin: 4px 0 8px; padding-left: 22px; color: var(--text); font-size: 14px; }
+  #routeSteps li { margin: 3px 0; }
+  #routeSteps li.now { color: #ffd84a; font-weight: 600; }
+  #routeSteps small { color: var(--dim); }
+  #routeBar { position: fixed; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); top: calc(var(--st) + 56px); max-width: 520px; margin: 0 auto; display: flex; gap: 6px; align-items: center; padding: 4px 4px 4px 0; background: rgba(13, 28, 37, 0.9); border: 1px solid #ffd84a; border-radius: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  #routeBar[hidden] { display: none; }
+  #routeOpen { flex: 1; min-width: 0; background: none; text-align: left; padding: 6px 12px; min-height: 44px; }
+  #routeStep { display: block; font: 700 17px/1.2 var(--display); letter-spacing: 0.02em; color: #ffd84a; }
+  #routeThen { display: block; color: var(--dim); font-size: 12px; }
+  body.routing #legend { top: calc(var(--st) + 124px); }
+  #liftBar { position: fixed; left: calc(var(--sl) + 12px); right: calc(var(--sr) + 12px); top: calc(var(--st) + 56px); max-width: 520px; margin: 0 auto; padding: 8px 12px; min-height: 44px; background: rgba(13, 28, 37, 0.9); border: 1px solid #9b4dff; border-radius: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); pointer-events: none; }
+  #liftBar[hidden] { display: none; }
+  #liftName { display: block; font: 700 17px/1.2 var(--display); letter-spacing: 0.02em; color: #c9a6ff; }
+  #liftLeft { display: block; color: var(--dim); font-size: 12px; }
+  body.riding:not(.routing) #legend { top: calc(var(--st) + 124px); }
+  #picker .acts:has(#pickPhoto[hidden]) { grid-template-columns: 1fr 1.3fr; }
+  #pickPhoto[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -180,7 +209,7 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1119.0529-0ac4132</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1123.1514-aebec47</span></div>
 </div>
 
 <div id="legend" hidden>
@@ -194,6 +223,7 @@
       <button role="tab" data-tab="layers" aria-selected="true">Layers</button>
       <button role="tab" data-tab="look" aria-selected="false">Look</button>
       <button role="tab" data-tab="view" aria-selected="false">View</button>
+      <button role="tab" data-tab="go" aria-selected="false">Go</button>
       <button role="tab" data-tab="maps" aria-selected="false">Maps</button>
       <button role="tab" data-tab="help" aria-selected="false">Info</button>
     </div>
@@ -265,6 +295,44 @@
     <label class="sw"><span>Solve lens too<small>Work out zoom and distortion from the picture</small></span><input id="cLens" type="checkbox" checked></label>
     <label class="sw">I'm on a chairlift<input id="cChair" type="checkbox"></label>
     <button class="btn" id="reset">Reset alignment</button>
+  </div>
+
+  <div class="pane" data-pane="go" hidden>
+    <div id="routeNow" hidden>
+      <p class="legend" id="routeSum"></p>
+      <ol id="routeSteps"></ol>
+      <div class="two"><button class="btn" id="routeShow">Show on map</button><button class="btn danger" id="routeStop">End route</button></div>
+    </div>
+    <h3 class="sub">Spots</h3>
+    <div id="places"></div>
+    <div id="placeForm" hidden>
+      <div class="row">
+        <label for="placeName">Name</label>
+        <input id="placeName" type="text" maxlength="40" autocomplete="off" placeholder="e.g. Car, row F">
+      </div>
+      <div class="seg four" id="placeIcon"></div>
+      <div class="two"><button class="btn go" id="placeSave">Save</button><button class="btn" id="placeCancel">Cancel</button></div>
+      <button class="btn danger" id="placeDel" hidden>Delete this spot</button>
+    </div>
+    <div class="two"><button class="btn" id="placeHere">Save this spot</button><button class="btn" id="placeMap">Map…</button></div>
+    <button class="btn" id="placePaste">Add a shared spot</button>
+    <p class="legend" id="placeMsg" role="status"></p>
+    <h3 class="sub">Route to a run</h3>
+    <input id="runFind" type="search" placeholder="Run name" autocomplete="off" enterkeyhint="search" aria-label="Run name">
+    <div id="runHits" class="hits"></div>
+    <h3 class="sub">Route options</h3>
+    <div class="row">
+      <label>Hardest runs on a route</label>
+      <div class="seg four" id="maxCls"><button data-c="1">Green</button><button data-c="2">Blue</button><button data-c="3">Black</button><button data-c="4">Double</button></div>
+    </div>
+    <div class="row">
+      <label for="avoidFind">Stay off (closed lifts and runs)</label>
+      <div id="avoidList" class="hits"></div>
+      <input id="avoidFind" type="search" placeholder="Add a lift or run" autocomplete="off" aria-label="Add a lift or run to stay off">
+      <div id="avoidHits" class="hits"></div>
+    </div>
+    <label class="sw">Spoken directions<input id="cSpeak" type="checkbox"></label>
+    <p class="legend">Routes follow the mapped runs and lifts, fastest first. Where the map leaves a gap, a short traverse over gentle ground is suggested and marked; check it with your own eyes. Off the route by more than 50 m, it plans again from where you are.</p>
   </div>
 
   <div class="pane" data-pane="maps" hidden>
@@ -342,7 +410,7 @@
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
       <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. The map for setting a photo's spot loads satellite or topographic pictures of the area on screen from Esri or OpenTopoMap. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1119.0529-0ac4132</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1123.1514-aebec47</span></p>
     </details>
   </div>
 </div>
@@ -357,6 +425,8 @@
   <div class="acts"><button class="btn" id="pickCancel">Cancel</button><label class="btn" id="pickPhoto" for="file">Other photo</label><button class="btn go" id="pickOk">Use this spot</button></div>
   <div id="pickCredit"></div>
 </div>
+<div id="liftBar" hidden role="status"><b id="liftName"></b><small id="liftLeft"></small></div>
+<div id="routeBar" hidden role="status"><button id="routeOpen" aria-label="Route steps"><b id="routeStep"></b><small id="routeThen"></small></button><button class="x" id="routeEnd" aria-label="End route"><svg viewBox="0 0 18 18"><path d="M3 3l12 12M15 3L3 15"/></svg></button></div>
 <button id="getHere" class="btn" hidden>Download a map for here</button>
 <div id="zoom" role="group" aria-label="Camera zoom" hidden></div>
 <div id="fixBar" hidden><button class="btn" id="fixBtn" aria-pressed="false">Fix a line</button><button class="btn" id="fixUndo" hidden>Undo</button></div>
@@ -387,10 +457,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1119.0529-0ac4132</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1123.1514-aebec47</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1119.0529-0ac4132"></script>
+<script type="module" src="js/main.js?v=1123.1514-aebec47"></script>
 </body>
 </html>
