@@ -1,25 +1,27 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1123.1514-aebec47';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1123.1514-aebec47';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1123.1514-aebec47';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1123.1514-aebec47';
-import { renderSim } from './sim.js?v=1123.1514-aebec47';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1123.1514-aebec47';
-import { LiftRide } from './liftride.js?v=1123.1514-aebec47';
-import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1123.1514-aebec47';
-import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1123.1514-aebec47';
-import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1123.1514-aebec47';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1123.1514-aebec47';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1123.1514-aebec47';
-import { pickOnMap } from './mappick.js?v=1123.1514-aebec47';
-import { relocate } from './relocate.js?v=1123.1514-aebec47';
-import { parseExif } from './exif.js?v=1123.1514-aebec47';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1123.1514-aebec47';
-import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1123.1514-aebec47';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1123.1514-aebec47';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1123.1514-aebec47';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1123.1925-052acda';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1123.1925-052acda';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1123.1925-052acda';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1123.1925-052acda';
+import { renderSim } from './sim.js?v=1123.1925-052acda';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1123.1925-052acda';
+import { LiftRide } from './liftride.js?v=1123.1925-052acda';
+import { Barometer } from './barometer.js?v=1123.1925-052acda';
+import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1123.1925-052acda';
+import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1123.1925-052acda';
+import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1123.1925-052acda';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1123.1925-052acda';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1123.1925-052acda';
+import { pickOnMap } from './mappick.js?v=1123.1925-052acda';
+import { relocate } from './relocate.js?v=1123.1925-052acda';
+import { parseExif } from './exif.js?v=1123.1925-052acda';
+import { PowerLog } from './power.js?v=1123.1925-052acda';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1123.1925-052acda';
+import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1123.1925-052acda';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1123.1925-052acda';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1123.1925-052acda';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -72,7 +74,16 @@ const photoCanvas = document.createElement('canvas');
 const anaCanvas = document.createElement('canvas'), anaCtx = anaCanvas.getContext('2d', { willReadFrequently: true });
 const orient = new Orientation();
 let liftRide = null;
+const baro = new Barometer();
 let shader, stopGps = null, stream = null, photoPano = null;
+// Development logs: the power log (power.js, Documents/power-log.csv). false for a release.
+const DEV_LOGS = true;
+// power profiling (power.js): frames drawn, time in each part, and what is switched on
+const power = new PowerLog('ridgeline', ['draw', 'demo', 'solve'], () => {
+  const [vw, vh] = S.source ? sourceSize() : [0, 0];
+  return { mode: S.mode, camera: stream ? 1 : 0, gps: stopGps ? 1 : 0, compass: performance.now() - (orient.lastT || -1e9) < 2000 ? 1 : 0,
+    baro: baro.on ? 1 : 0, locked: S.locked ? 1 : 0, video: vw ? `${vw}x${vh}` : '', canvas: `${S.view.sw}x${S.view.sh}`, sheet: $('sheet').hidden ? 0 : 1, ride: S.ride ? 1 : 0, route: S.route ? 1 : 0 };
+}, { on: DEV_LOGS });
 
 function status(text, cls = '') {
   $('statText').textContent = text;
@@ -560,6 +571,7 @@ function resetAlignment() {
 function stopLive() {
   orient.stop(); stopGps?.(); stopGps = null;
   liftRide?.end(); S.ride = null; syncRide();
+  baro.stop(); syncBaro();
   stream?.getTracks().forEach(t => t.stop()); stream = null;
 }
 
@@ -581,6 +593,7 @@ async function setMode(mode) {
     S.source = video; S.pano = S.scene = S.model = null; S.origin = null;
     status('Waiting for GPS…');
     stopGps = watchPosition(onFix, msg => status(msg, 'bad'));
+    baro.start().then(syncBaro);
   }
 }
 
@@ -609,8 +622,19 @@ function useSpot() {
 function onFix(fix) {
   S.gps = fix;
   if (S.mode === 'live' && liftRide) {
-    const was = S.ride?.lift.index;
-    S.ride = liftRide.update(fix); syncRide();
+    const was = S.ride?.lift.index, rel = baro.rel();
+    const anchor = S.ride?.anchor;
+    S.ride = liftRide.update({ ...fix, climb: baro.climb() });
+    if (S.ride) {
+      // height: the cable model where the ride was noticed, then the barometer from there
+      S.ride.anchor = S.ride.lift.index === was && anchor ? anchor : { z: S.ride.cableZ, rel };
+      const a = S.ride.anchor;
+      S.ride.z = rel != null && a.rel != null ? a.z + rel - a.rel : S.ride.cableZ;
+    } else {
+      const z = S.pack.terrain.elev(fix.lon, fix.lat);
+      if (z === z && (fix.acc || 99) < 30) baro.note(z + 1.5);   // on the snow: a known height for the weather trend
+    }
+    syncRide(); syncBaro();
     // getting on or off moves the eye between the snow and the chair
     if (S.ride?.lift.index !== was && S.origin && !S.building && !S.switching) setViewpoint(fix.lat, fix.lon);
   }
@@ -633,7 +657,7 @@ function aimFromFix(fix) {
   if (!S.scene || !(fix.lat === fix.lat)) return;
   const z = S.pack.terrain.elev(fix.lon, fix.lat);
   if (!(z === z)) return;
-  aimLifts(S.scene, fix.lat, fix.lon, S.ride ? Math.max(z + 1.7, S.ride.cableZ) : z + (S.chair ? 9 : 1.7), fix.acc || 0);
+  aimLifts(S.scene, fix.lat, fix.lon, S.ride ? Math.max(z + 1.7, S.ride.z) : z + (S.chair ? 9 : 1.7), fix.acc || 0);
 }
 
 async function loadPhoto(file) {
@@ -696,7 +720,7 @@ function photoPosText(how) {
 const eyeHeight = () => {
   if (S.mode === 'live' && S.ride && S.gps) {
     const z = S.pack.terrain.elev(S.gps.lon, S.gps.lat);
-    if (z === z) return Math.max(1.7, S.ride.cableZ - z);
+    if (z === z) return Math.max(1.7, S.ride.z - z);
   }
   return (S.chair ? 9 : 1.7) + (S.mode === 'photo' ? S.photoUp || 0 : 0);
 };
@@ -1021,6 +1045,15 @@ function syncRide() {
   $('liftName').textContent = `🚡 On ${r.lift.name || 'a lift'}`;
   $('liftLeft').textContent = `${fmtM(r.left)} to the top · about ${fmtT(r.tLeft)}`;
 }
+/** Air pressure, when the phone has a barometer and the reading is wanted on screen. */
+function syncBaro() {
+  $('baroRow').hidden = !baro.available;
+  const w = $('cBaro').checked && baro.on ? baro.weather() : null;
+  $('baroChip').hidden = !w;
+  if (!w) return;
+  const d = w.d3h == null ? 'trend after an hour' : `${w.word} ${w.d3h < 0 ? '−' : '+'}${Math.abs(w.d3h * 0.02953).toFixed(2)} in 3 h`;
+  $('baroChip').textContent = `${w.inHg.toFixed(2)} inHg · ${d}`;
+}
 function endRoute() {
   S.route = null;
   document.body.classList.remove('routing');
@@ -1113,7 +1146,7 @@ function renderDemo(now) {
   const frame = renderSim({ pano: S.pano, terrain: S.pack.terrain, ownerCost: S.own.cost }, truth, w, h);
   simCanvas.width = w; simCanvas.height = h;
   simCtx.putImageData(new ImageData(frame.data, w, h), 0, 0);
-  d.w = w; d.h = h; d.dirty = false;
+  d.w = w; d.h = h; d.dirty = false; d.ver = (d.ver || 0) + 1;
   S.sensorR = rotFromYPR(d.yaw, d.pitch, 0);
 }
 
@@ -1139,7 +1172,7 @@ function renderPhotoDemo() {
   // the same deliberate sensor and lens errors as the drawn demo, for the solver to find
   const truth = new Camera(rotFromYPR(d.yaw + d.err.yaw, d.pitch + d.err.pitch, d.err.roll), fn * d.err.fScale, d.err.k1);
   photoPano.render(truth, w, h);
-  d.w = w; d.h = h; d.dirty = false;
+  d.w = w; d.h = h; d.dirty = false; d.ver = (d.ver || 0) + 1;
   S.sensorR = rotFromYPR(d.yaw, d.pitch, 0);
 }
 
@@ -1197,12 +1230,26 @@ function trySolve(now) {
   }
 }
 
+let lastKey = '', lastDrawT = 0, videoFrames = 0;
+// count camera frames as they arrive (Safari, Chrome); elsewhere the video's clock stands in
+if (video.requestVideoFrameCallback) { const onVf = () => { videoFrames++; video.requestVideoFrameCallback(onVf); }; video.requestVideoFrameCallback(onVf); }
+/** What the drawn picture depends on, as a string: changes whenever it must be redrawn. */
+function drawKey(vw, vh) {
+  const c = S.cam, v = S.view, g = S.grab;
+  const src = S.source === video ? (video.requestVideoFrameCallback ? videoFrames : video.currentTime) : S.source === simCanvas ? `s${S.demo.ver}` : `p${S.demo.ver}`;
+  return [src, vw, vh, ...c.R.map(x => x.toFixed(5)), c.fn.toFixed(5), c.k1.toFixed(4), v.sw, v.sh, v.fw.toFixed(1), v.fh.toFixed(1),
+    JSON.stringify(S.opts), S.anchors?.length || 0, g ? `${g.x},${g.y}` : '', sceneVer(S.scene)].join('|');
+}
+const sceneIds = new WeakMap();
+let sceneN = 0;
+const sceneVer = sc => (sc ? (sceneIds.get(sc) ?? (sceneIds.set(sc, ++sceneN), sceneN)) : 0);
+
 function tick(now) {
   requestAnimationFrame(tick);
   if (!S.source || !shader) return;
   resize();
   if (S.mode === 'live' && orient.R) S.sensorR = orient.R;
-  if (S.mode === 'demo' && S.pano) renderDemo(now);
+  if (S.mode === 'demo' && S.pano) power.time('demo', () => renderDemo(now));
   const [vw, vh] = sourceSize();
   if (!vw) return;
   if (S.mode === 'live' && S.lensFor !== `${vw}x${vh}`) { S.lensFor = `${vw}x${vh}`; recallLens(vw, vh); syncZoom(); }
@@ -1210,17 +1257,27 @@ function tick(now) {
   const sc = (S.mode === 'photo' ? Math.min(v.sw / vw, v.sh / vh) : Math.max(v.sw / vw, v.sh / vh)) * S.softZoom;
   v.fw = vw * sc; v.fh = vh * sc;
   S.cam.R = currentR();
-  shader.draw(S.source, S.cam, v, S.opts);
-  if (S.scene) drawOverlay(octx, S.scene, S.cam, v, S.opts);
-  else octx.clearRect(0, 0, v.sw, v.sh);
-  if (S.mode === 'photo' && S.pano && (S.anchors?.length || S.grab)) drawAnchors();
-  // A snapshot has to be read in the same frame it was drawn: WebGL clears its canvas after.
-  if (snapWant) { const f = snapWant; snapWant = null; f(captureView()); }
+  // Draw only when the picture would change: a new camera frame, a move, a different layer
+  // or scene; else at most once a second (anything not in the key). The screen refreshes up
+  // to 120 times a second; the camera gives 30 frames.
+  const key = drawKey(vw, vh);
+  if (key !== lastKey || now - lastDrawT > 1000 || snapWant) {
+    lastKey = key; lastDrawT = now;
+    power.frame();
+    power.time('draw', () => {
+      shader.draw(S.source, S.cam, v, S.opts);
+      if (S.scene) drawOverlay(octx, S.scene, S.cam, v, S.opts);
+      else octx.clearRect(0, 0, v.sw, v.sh);
+      if (S.mode === 'photo' && S.pano && (S.anchors?.length || S.grab)) drawAnchors();
+    });
+    // A snapshot has to be read in the same frame it was drawn: WebGL clears its canvas after.
+    if (snapWant) { const f = snapWant; snapWant = null; f(captureView()); }
+  }
   const fixOff = S.mode !== 'photo' || !S.scene;
   if (fixBar.hidden !== fixOff) fixBar.hidden = fixOff;
   // a photo does not move: once it has settled, further solves can only disturb it
   const still = S.mode === 'photo' && S.settled >= 3;
-  if (S.pano && !still && now - S.lastSolve > (S.locked ? 1800 : 900)) trySolve(now);
+  if (S.pano && !still && now - S.lastSolve > (S.locked ? 1800 : 900)) power.time('solve', () => trySolve(now));
   if (!$('sheet').hidden && now - (S.lastDebug || 0) > 400) { S.lastDebug = now; debug(); syncArrows(); }
 }
 
@@ -1267,7 +1324,8 @@ function telemetry() {
     photo: S.mode === 'photo' ? { fix: S.photoFix, acc: S.photoAcc, up: S.photoUp, compass: S.photoHasCompass, note: S.photoNote,
       pins: (S.anchors || []).map(p => ({ name: p.name, lat: r(p.lat, 6), lon: r(p.lon, 6), z: r(p.z, 1), u: r(p.u, 4), v: r(p.v, 4) })) } : null,
     near: S.near, layers: S.opts, places: S.places.length,
-    ride: S.ride ? { lift: S.ride.lift.name, left: Math.round(S.ride.left), speed: +S.ride.speed.toFixed(1) } : null,
+    baro: baro.on ? { kPa: baro.last?.kPa ?? null, climb: baro.climb(), weather: baro.weather() } : { available: baro.available },
+    ride: S.ride ? { z: Math.round(S.ride.z), cableZ: Math.round(S.ride.cableZ), lift: S.ride.lift.name, left: Math.round(S.ride.left), speed: +S.ride.speed.toFixed(1) } : null,
     route: S.route ? { to: S.route.target.kind, steps: S.route.r.legs.map(legText), min: Math.round(S.route.r.t / 60), leg: S.route.leg, maxCls: S.maxCls, avoid: S.avoid.length } : null, scene: S.scene ? { lifts: S.scene.lifts.length, runs: S.scene.runs.length, peaks: S.scene.peaks.length, liftAcc: S.scene.acc } : null,
     build: { ms: r(S.buildMs, 0) }, ua: navigator.userAgent,
   };
@@ -1609,6 +1667,8 @@ function wire() {
   try { maxCls = +localStorage.getItem('ridgeline.maxCls') || 2; } catch { /* default blue */ }
   setMaxCls(Math.min(4, Math.max(1, maxCls)));
   try { $('cSpeak').checked = localStorage.getItem('ridgeline.speak') === '1'; } catch { /* off */ }
+  try { $('cBaro').checked = localStorage.getItem('ridgeline.baroShow') === '1'; } catch { /* off */ }
+  $('cBaro').onchange = e => { try { localStorage.setItem('ridgeline.baroShow', e.target.checked ? '1' : '0'); } catch { /* not kept */ } syncBaro(); };
   $('cSpeak').onchange = e => { try { localStorage.setItem('ridgeline.speak', e.target.checked ? '1' : '0'); } catch { /* not kept */ } };
   $('routeOpen').onclick = () => { $('sheet').hidden = false; showTab('go'); };
   $('routeEnd').onclick = $('routeStop').onclick = () => { endRoute(); status('Route ended.'); };
@@ -1713,6 +1773,7 @@ function wire() {
 wire();
 syncFov();
 requestAnimationFrame(tick);
+power.start();
 boot().then(() => {
   // URL switches for testing: ?demo&slope&outline&nosnow&alpha=0.4, ?photo=<url>
   const q = new URLSearchParams(location.search);

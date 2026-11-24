@@ -197,6 +197,9 @@
   #liftName { display: block; font: 700 17px/1.2 var(--display); letter-spacing: 0.02em; color: #c9a6ff; }
   #liftLeft { display: block; color: var(--dim); font-size: 12px; }
   body.riding:not(.routing) #legend { top: calc(var(--st) + 124px); }
+  #baroChip { position: fixed; right: calc(var(--sr) + 12px); top: calc(var(--st) + 56px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 5px 9px; color: var(--text); font-size: 12px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; }
+  #baroChip[hidden] { display: none; }
+  body.routing #baroChip, body.riding #baroChip { top: calc(var(--st) + 124px); }
   #picker .acts:has(#pickPhoto[hidden]) { grid-template-columns: 1fr 1.3fr; }
   #pickPhoto[hidden] { display: none; }
 </style>
@@ -209,7 +212,7 @@
 <video id="video" playsinline muted></video>
 
 <div id="top">
-  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1123.1514-aebec47</span></div>
+  <div id="status" class="chip"><span class="dot"></span><b id="statMode">Demo</b><span id="statText">Loading terrain…</span><span class="ver">1123.1925-052acda</span></div>
 </div>
 
 <div id="legend" hidden>
@@ -294,6 +297,7 @@
     <label class="sw">Auto-align to skyline<input id="cAuto" type="checkbox" checked></label>
     <label class="sw"><span>Solve lens too<small>Work out zoom and distortion from the picture</small></span><input id="cLens" type="checkbox" checked></label>
     <label class="sw">I'm on a chairlift<input id="cChair" type="checkbox"></label>
+    <label class="sw" id="baroRow" hidden><span>Show air pressure<small>From the phone's barometer, with the three-hour trend</small></span><input id="cBaro" type="checkbox"></label>
     <button class="btn" id="reset">Reset alignment</button>
   </div>
 
@@ -410,7 +414,7 @@
       <p>Skiing and snowboarding are dangerous. You are responsible for your own decisions and safety. The app is provided "as is", without warranty of any kind, and to the fullest extent the law allows its makers are not liable for any injury, loss or damage arising from its use.</p>
       <p>Privacy: camera pictures are processed on your phone and are never uploaded. Your location is used on your phone to choose a map and place the overlay. The map for setting a photo's spot loads satellite or topographic pictures of the area on screen from Esri or OpenTopoMap. When you download a map area, the outline of that area (and any place name you search for) is sent to the map servers that supply the data.</p>
       <p>Ridgeline is not affiliated with, sponsored by or endorsed by any ski resort. Resort, lift and run names belong to their owners and are used only to identify them.</p>
-      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1123.1514-aebec47</span></p>
+      <p id="copyright">© 2026 Ridgeline. All rights reserved. Version <span class="ver">1123.1925-052acda</span></p>
     </details>
   </div>
 </div>
@@ -425,6 +429,7 @@
   <div class="acts"><button class="btn" id="pickCancel">Cancel</button><label class="btn" id="pickPhoto" for="file">Other photo</label><button class="btn go" id="pickOk">Use this spot</button></div>
   <div id="pickCredit"></div>
 </div>
+<div id="baroChip" hidden role="status"></div>
 <div id="liftBar" hidden role="status"><b id="liftName"></b><small id="liftLeft"></small></div>
 <div id="routeBar" hidden role="status"><button id="routeOpen" aria-label="Route steps"><b id="routeStep"></b><small id="routeThen"></small></button><button class="x" id="routeEnd" aria-label="End route"><svg viewBox="0 0 18 18"><path d="M3 3l12 12M15 3L3 15"/></svg></button></div>
 <button id="getHere" class="btn" hidden>Download a map for here</button>
@@ -457,10 +462,10 @@
   </div>
   <p id="a2hs" hidden><b>For full screen on iPhone:</b> tap Share <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> in Safari, choose "Add to Home Screen", then open Ridgeline from its icon. Safari itself cannot hide its address bar for a web page.</p>
   <p id="startErr" role="alert"></p>
-  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1123.1514-aebec47</span></p>
+  <p style="font-size:12px">The camera view needs location, camera and motion access. Camera pictures never leave your phone.<br>Version <span class="ver">1123.1925-052acda</span></p>
 </div>
 <input id="file" class="offscreen" type="file" accept="image/jpeg,image/*">
 <input id="fbFile" class="offscreen" type="file" accept="image/*" multiple>
-<script type="module" src="js/main.js?v=1123.1514-aebec47"></script>
+<script type="module" src="js/main.js?v=1123.1925-052acda"></script>
 </body>
 </html>

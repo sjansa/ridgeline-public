@@ -1,7 +1,7 @@
 // liftride.js -- notice when the rider is going up a lift line, from GPS alone:
 // staying on one lift's line, moving along it uphill at lift speed.
 
-import { LIFT_SPEED } from './route.js?v=1123.1514-aebec47';
+import { LIFT_SPEED } from './route.js?v=1123.1925-052acda';
 
 const KEEP_S = 90;          // seconds of fixes kept
 const MIN_GAIN_M = 30;      // meters gained along the line before calling it a ride
@@ -10,6 +10,8 @@ const MAX_SPEED = 13;       // m/s: faster than any lift
 const TOP_M = 15;           // this close to the top station: off the lift
 const MISSES = 2;           // fixes in a row off the line before the ride ends
 const HANG_M = 2;           // chair or cabin floor below the cable, roughly
+const BARO_UP = 0.15;       // m/s: with a barometer, a ride must be climbing at least this fast
+const BARO_DOWN = -0.5;     // m/s: going down this fast is skiing under the lift, not riding it
 
 /** How far off a lift line a fix may sit and still be on it. */
 const tol = acc => Math.min(50, Math.max(15, 1.5 * (acc || 10)));
@@ -47,7 +49,8 @@ export class LiftRide {
   }
 
   /**
-   * Feed a fix ({lat, lon, acc}; t in seconds). Returns the ride or null:
+   * Feed a fix ({lat, lon, acc, climb}; t in seconds). climb: m/s up from the
+   * barometer, when the phone has one; it vetoes a ride that is not climbing. Returns the ride or null:
    * { lift (the prepared lift), up (+1 riding toward its last point, -1 toward its first),
    *   s, left (m to the top), tLeft (s), speed (m/s), top [lat, lon], cableZ }.
    */
@@ -60,6 +63,7 @@ export class LiftRide {
       const L = R.L, p = this.project(L, x, y);
       if (p.d > tol(fix.acc)) { if (++R.miss >= MISSES) this.ride = null; return this.ride && this.out(); }
       R.miss = 0;
+      if (fix.climb != null && fix.climb < BARO_DOWN) { this.ride = null; return null; }
       const back = (R.s - p.s) * R.up;
       if (back > Math.max(40, 2 * (fix.acc || 10))) { this.ride = null; return null; }   // heading back down: skiing under it
       if (back < 0) {
@@ -89,6 +93,7 @@ export class LiftRide {
       const v = Math.abs(gain) / dt, slow = L.l.type === 'magic_carpet' ? 0.3 : MIN_SPEED;
       if (v < slow || v > MAX_SPEED) continue;
       if (this.zAt(L, now.s) - this.zAt(L, first.s) < 3) continue;   // must be going up
+      if (fix.climb != null && L.l.type !== 'magic_carpet' && fix.climb < BARO_UP) continue;
       if ((up > 0 ? L.len - now.s : now.s) < TOP_M) continue;
       this.ride = { L, up, s: now.s, t, speed: v, miss: 0 };
       return this.out();

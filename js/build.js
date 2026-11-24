@@ -10,7 +10,7 @@
 // buildFeatures and the grid maths have no browser dependencies (the tests run
 // them in Node); only tile decoding and fetch do.
 
-import { declination } from './geomag.js?v=1123.1514-aebec47';
+import { declination } from './geomag.js?v=1123.1925-052acda';
 
 export const DEM_UNIT = 0.25;
 export const FINE_RES = 10, COARSE_RES = 50;      // meters
