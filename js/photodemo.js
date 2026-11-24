@@ -7,7 +7,7 @@
 // compass direction at each knot and the height of the level line there.
 // The knots were fitted offline by matching the photo's skyline to the terrain.
 
-import { D2R } from './terrain.js?v=1123.1925-052acda';
+import { D2R } from './terrain.js?v=1124.1623-cf16757';
 
 /**
  * Alta, Albion Basin, 17 February 2023.

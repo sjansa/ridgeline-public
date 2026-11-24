@@ -1,7 +1,7 @@
 // liftride.js -- notice when the rider is going up a lift line, from GPS alone:
 // staying on one lift's line, moving along it uphill at lift speed.
 
-import { LIFT_SPEED } from './route.js?v=1123.1925-052acda';
+import { LIFT_SPEED } from './route.js?v=1124.1623-cf16757';
 
 const KEEP_S = 90;          // seconds of fixes kept
 const MIN_GAIN_M = 30;      // meters gained along the line before calling it a ride
@@ -12,6 +12,11 @@ const MISSES = 2;           // fixes in a row off the line before the ride ends
 const HANG_M = 2;           // chair or cabin floor below the cable, roughly
 const BARO_UP = 0.15;       // m/s: with a barometer, a ride must be climbing at least this fast
 const BARO_DOWN = -0.5;     // m/s: going down this fast is skiing under the lift, not riding it
+// Along the line the position is tracked, not just read off each fix: a fix's error along the
+// line is smoothed out, and between fixes the rider is carried on at the lift's speed.
+const TRACK_A = 0.35;       // share of a fix's surprise taken into the position...
+const TRACK_B = 0.08;       // ...and into the speed (per second)
+const COAST_S = 8;          // carried on at most this long past the last fix (a lift can stop)
 
 /** How far off a lift line a fix may sit and still be on it. */
 const tol = acc => Math.min(50, Math.max(15, 1.5 * (acc || 10)));
@@ -64,13 +69,12 @@ export class LiftRide {
       if (p.d > tol(fix.acc)) { if (++R.miss >= MISSES) this.ride = null; return this.ride && this.out(); }
       R.miss = 0;
       if (fix.climb != null && fix.climb < BARO_DOWN) { this.ride = null; return null; }
-      const back = (R.s - p.s) * R.up;
-      if (back > Math.max(40, 2 * (fix.acc || 10))) { this.ride = null; return null; }   // heading back down: skiing under it
-      if (back < 0) {
-        const dt = t - R.t;
-        if (dt > 0) R.speed = 0.7 * R.speed + 0.3 * Math.min(MAX_SPEED, -back / dt);
-        R.s = p.s; R.t = t;
-      }
+      const dt = Math.max(0, t - R.t), sp = this.sAt(t), surprise = (p.s - sp) * R.up;
+      if (surprise < -Math.max(40, 2 * (fix.acc || 10))) { this.ride = null; return null; }   // heading back down: skiing under it
+      // alpha-beta tracking along the line: steady through GPS jitter, quick to a stop or a start
+      R.s = Math.max(0, Math.min(L.len, sp + R.up * TRACK_A * surprise));
+      if (dt > 0) R.speed = Math.max(0, Math.min(MAX_SPEED, R.speed + TRACK_B * surprise / Math.max(1, dt)));
+      R.t = t;
       if ((R.up > 0 ? L.len - R.s : R.s) < TOP_M) { this.ride = null; return null; }
       return this.out();
     }
@@ -99,6 +103,21 @@ export class LiftRide {
       return this.out();
     }
     return null;
+  }
+
+  /** Distance along the line at time t, carried on from the last fix at the tracked speed. */
+  sAt(t) {
+    const R = this.ride, dt = Math.min(COAST_S, Math.max(0, t - R.t));
+    return Math.max(0, Math.min(R.L.len, R.s + R.up * R.speed * dt));
+  }
+  /** Where the rider is at time t (seconds, performance clock): {lat, lon, s, cableZ}, on the line; null when not riding. */
+  at(t = performance.now() / 1000) {
+    if (!this.ride) return null;
+    const L = this.ride.L, s = this.sAt(t);
+    let i = 1;
+    while (i < L.s.length - 1 && L.s[i] < s) i++;
+    const f = Math.max(0, Math.min(1, (s - L.s[i - 1]) / ((L.s[i] - L.s[i - 1]) || 1))), a = L.l.pts[i - 1], b = L.l.pts[i];
+    return { lat: a[0] + (b[0] - a[0]) * f, lon: a[1] + (b[1] - a[1]) * f, s, cableZ: this.zAt(L, s) - HANG_M };
   }
 
   out() {

@@ -1,7 +1,7 @@
 {
  "id": "parkcity",
  "name": "Park City & Deer Valley",
- "built": "2026-11-14T05:25:00+00:00",
+ "built": "2026-11-24T23:08:06+00:00",
  "demUnit": 0.25,
  "fine": {
   "file": "dem_fine.bin",
@@ -14,12 +14,12 @@
  },
  "coarse": {
   "file": "dem_coarse.bin",
-  "west": -111.8,
-  "south": 40.42,
-  "east": -111.25,
-  "north": 40.86,
-  "cols": 930,
-  "rows": 974
+  "west": -112.3203,
+  "south": 40.03221,
+  "east": -110.7197,
+  "north": 41.24779,
+  "cols": 2254,
+  "rows": 2241
  },
  "features": "features.json",
  "attribution": "Terrain: Mapzen/AWS Terrain Tiles (USGS 3DEP). Lifts, runs, peaks: \u00a9 OpenStreetMap contributors (ODbL).",

@@ -1,27 +1,28 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1123.1925-052acda';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1123.1925-052acda';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1123.1925-052acda';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1123.1925-052acda';
-import { renderSim } from './sim.js?v=1123.1925-052acda';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1123.1925-052acda';
-import { LiftRide } from './liftride.js?v=1123.1925-052acda';
-import { Barometer } from './barometer.js?v=1123.1925-052acda';
-import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1123.1925-052acda';
-import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1123.1925-052acda';
-import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1123.1925-052acda';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1123.1925-052acda';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1123.1925-052acda';
-import { pickOnMap } from './mappick.js?v=1123.1925-052acda';
-import { relocate } from './relocate.js?v=1123.1925-052acda';
-import { parseExif } from './exif.js?v=1123.1925-052acda';
-import { PowerLog } from './power.js?v=1123.1925-052acda';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1123.1925-052acda';
-import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1123.1925-052acda';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1123.1925-052acda';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1123.1925-052acda';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1124.1623-cf16757';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1124.1623-cf16757';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1124.1623-cf16757';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1124.1623-cf16757';
+import { renderSim } from './sim.js?v=1124.1623-cf16757';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1124.1623-cf16757';
+import { LiftRide } from './liftride.js?v=1124.1623-cf16757';
+import { LIVE, ZOOMS, liveSolveOpts, applySolve, solveEvery, StandFollow, metersApart } from './live.js?v=1124.1623-cf16757';
+import { Barometer } from './barometer.js?v=1124.1623-cf16757';
+import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1124.1623-cf16757';
+import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1124.1623-cf16757';
+import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1124.1623-cf16757';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1124.1623-cf16757';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1124.1623-cf16757';
+import { pickOnMap } from './mappick.js?v=1124.1623-cf16757';
+import { relocate } from './relocate.js?v=1124.1623-cf16757';
+import { parseExif } from './exif.js?v=1124.1623-cf16757';
+import { PowerLog } from './power.js?v=1124.1623-cf16757';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1124.1623-cf16757';
+import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1124.1623-cf16757';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1124.1623-cf16757';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1124.1623-cf16757';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -43,7 +44,6 @@ const fixBar = document.getElementById('fixBar');
 const FOV_MIN = 4, FOV_MAX = 110;    // long telephoto to ultra-wide
 const SOFT_ZOOM_MAX = 5;             // on-screen zoom where the camera offers none of its own
 const DEFAULT_HFOV = 64;      // phone main camera, video mode, along the long side of the frame
-const ZOOMS = [1, 0.6, 1.65]; // focal guesses tried while the lens is unknown: main, ultra-wide, tele
 const ANALYSIS_W = 320;
 const PHOTO_ACC_UNKNOWN = 10;  // meters: a photo's GPS fix when it does not say how good it is
 const RELOCATE_RADIUS = 250;   // meters: how far 'fix a line' may move a photo's spot
@@ -74,6 +74,8 @@ const photoCanvas = document.createElement('canvas');
 const anaCanvas = document.createElement('canvas'), anaCtx = anaCanvas.getContext('2d', { willReadFrequently: true });
 const orient = new Orientation();
 let liftRide = null;
+// live: the viewpoint follows GPS by the shared rules (live.js)
+const stand = new StandFollow(() => (S.mode === 'live' && !S.building && !S.switching ? S.origin : null), p => setViewpoint(p.lat, p.lon));
 const baro = new Barometer();
 let shader, stopGps = null, stream = null, photoPano = null;
 // Development logs: the power log (power.js, Documents/power-log.csv). false for a release.
@@ -344,7 +346,7 @@ function setViewpoint(lat, lon) {
       const t0 = performance.now();
       attachNear(lat, lon);
       const pano = buildPano(S.pack.terrain, lat, lon, {
-        eye: eyeHeight(), ownerGrid: S.pack.terrain.fine, owner: S.own.owner, ownerCost: S.own.cost, reach: MAX_REACH, slope: S.slope,
+        eye: eyeHeight(lat, lon), maxDist: LIVE.MAX_DIST_M, ownerGrid: S.pack.terrain.fine, owner: S.own.owner, ownerCost: S.own.cost, reach: MAX_REACH, slope: S.slope,
       });
       const chains = chainCrests(pano);
       S.pano = pano; S.model = alignModel(pano, chains); S.scene = buildScene(pano, chains, S.prep);
@@ -570,7 +572,7 @@ function resetAlignment() {
 
 function stopLive() {
   orient.stop(); stopGps?.(); stopGps = null;
-  liftRide?.end(); S.ride = null; syncRide();
+  liftRide?.end(); S.ride = null; syncRide(); stand.stop();
   baro.stop(); syncBaro();
   stream?.getTracks().forEach(t => t.stop()); stream = null;
 }
@@ -584,6 +586,7 @@ async function setMode(mode) {
   $('spotRow').hidden = mode === 'live';
   $('photoPosRow').hidden = mode !== 'photo';
   $('getHere').hidden = true;
+  if (mode !== 'demo') $('credit').hidden = true;   // the demo photo's credit
   if (mode !== 'live') { $('lensRow').hidden = true; S.softZoom = 1; }
   resetAlignment(); syncZoom();
   if (mode === 'demo') {
@@ -629,14 +632,18 @@ function onFix(fix) {
       // height: the cable model where the ride was noticed, then the barometer from there
       S.ride.anchor = S.ride.lift.index === was && anchor ? anchor : { z: S.ride.cableZ, rel };
       const a = S.ride.anchor;
-      S.ride.z = rel != null && a.rel != null ? a.z + rel - a.rel : S.ride.cableZ;
+      const zb = rel != null && a.rel != null ? a.z + rel - a.rel : NaN;
+      S.ride.z = Math.abs(zb - S.ride.cableZ) <= 50 ? zb : S.ride.cableZ;
     } else {
       const z = S.pack.terrain.elev(fix.lon, fix.lat);
       if (z === z && (fix.acc || 99) < 30) baro.note(z + 1.5);   // on the snow: a known height for the weather trend
     }
     syncRide(); syncBaro();
     // getting on or off moves the eye between the snow and the chair
-    if (S.ride?.lift.index !== was && S.origin && !S.building && !S.switching) setViewpoint(fix.lat, fix.lon);
+    if (S.ride?.lift.index !== was && S.origin && !S.building && !S.switching) {
+      if (S.ride) followRide(performance.now(), true);
+      else setViewpoint(fix.lat, fix.lon);
+    }
   }
   if (S.route && S.mode === 'live' && S.net) updateRoute(fix);
   if (S.mode !== 'live' || S.building || S.switching) return;
@@ -646,13 +653,45 @@ function onFix(fix) {
     return;
   }
   const o = S.origin;
-  const moved = o ? Math.hypot((fix.lat - o.lat) * 110540, (fix.lon - o.lon) * 111320 * Math.cos(fix.lat * D2R)) : Infinity;
-  // Rebuild once the move outgrows GPS noise; a few meters does not shift the picture.
-  if (moved > Math.max(10, Math.min(fix.acc || 10, 40))) setViewpoint(fix.lat, fix.lon);
-  else aimFromFix(fix);
+  if (!o) { setViewpoint(fix.lat, fix.lon); return; }
+  if (S.ride) return;      // on a lift the frame loop carries the view along the line (followRide)
+  // a good fix, once it has stayed put a moment, 4 m or more from where the view is drawn from
+  stand.fix(fix);
+  aimFromFix(fix);
 }
 
 /** Lifts are close enough that every fix moves them: aim them from it (cheap), and drop the ones nearer than GPS can place. */
+// On a lift the position comes from the ride's tracking along the line (liftride.js), not the
+// latest fix: GPS jitter sideways is gone, along the line it is smoothed, and between fixes
+// the rider is carried on at the lift's speed. The view is rebuilt every RIDE_STEP_M, for where
+// the rider will be once the build is done.
+const RIDE_STEP_M = 20;
+let rideAimT = 0;
+/** Where the rider is at t (ms, performance clock): on the line, at the barometer's height where there is one. */
+function rideSpot(t) {
+  const q = liftRide?.at(t / 1000);
+  if (!q || !S.ride) return null;
+  const a = S.ride.anchor, rel = baro.rel(), ahead = Math.max(0, (t - performance.now()) / 1000);
+  const zb = rel != null && a?.rel != null ? a.z + rel - a.rel + (baro.climb() || 0) * ahead : NaN;
+  // the barometer, unless it has wandered off the cable model by more than a sag and a tower could
+  q.z = Math.abs(zb - q.cableZ) <= 50 ? zb : q.cableZ;
+  return q;
+}
+function followRide(now, force = false) {
+  if (S.building || S.switching || !S.scene) return;
+  const q = rideSpot(now);
+  if (!q) return;
+  if (force || metersApart(q, S.origin) > RIDE_STEP_M) {
+    const lead = Math.min(3000, Math.max(300, S.buildMs || 500));
+    const ql = rideSpot(now + lead);
+    S.rideAt = ql; setViewpoint(ql.lat, ql.lon);
+    return;
+  }
+  if (now - rideAimT < 250) return;
+  rideAimT = now; S.rideAt = q;
+  aimLifts(S.scene, q.lat, q.lon, q.z, 0);
+}
+
 function aimFromFix(fix) {
   if (!S.scene || !(fix.lat === fix.lat)) return;
   const z = S.pack.terrain.elev(fix.lon, fix.lat);
@@ -717,10 +756,10 @@ function photoPosText(how) {
 // ------------------------------------------- photo: fix a line, move the spot
 
 /** Eye height above the ground: a chair rider sits higher; a photo may have been taken from above the ground. */
-const eyeHeight = () => {
-  if (S.mode === 'live' && S.ride && S.gps) {
-    const z = S.pack.terrain.elev(S.gps.lon, S.gps.lat);
-    if (z === z) return Math.max(1.7, S.ride.z - z);
+const eyeHeight = (lat, lon) => {
+  if (S.mode === 'live' && S.ride && S.rideAt) {
+    const z = S.pack.terrain.elev(lon, lat);
+    if (z === z) return Math.max(1.7, S.rideAt.z - z);
   }
   return (S.chair ? 9 : 1.7) + (S.mode === 'photo' ? S.photoUp || 0 : 0);
 };
@@ -1183,7 +1222,7 @@ function currentR() {
 function trySolve(now) {
   const [vw, vh] = sourceSize();
   if (!vw || !S.model) return;
-  if (S.mode === 'live' && orient.rate > 12) return;           // phone is swinging
+  if (S.mode === 'live' && orient.rate > LIVE.SWING_DEG_S) return;           // phone is swinging
   if (S.mode === 'demo' && (S.demo.dragging || S.demo.w < 400)) return;
   S.lastSolve = now;
   const ah = Math.round(ANALYSIS_W * vh / vw);
@@ -1195,34 +1234,26 @@ function trySolve(now) {
   if (!S.auto || now < S.holdUntil) return;
   const t0 = performance.now();
   const base = new Camera(currentR(), S.cam.fn, S.cam.k1);
-  const sol = solveAlignment(S.model, base, an, {
-    // Live, the compass is good to a few tens of degrees, and searching the
-    // whole horizon invites a false lock on some other ridge (or a window
-    // frame). A photo's compass tag can be anything.
-    maxYaw: S.locked ? 10 : S.mode === 'live' ? 45 : 180, lens: S.lens,
+  // live: the shared rules (live.js). A photo or the demo has no compass to trust: search
+  // the whole horizon, and a photo says nothing about tilt.
+  const sol = solveAlignment(S.model, base, an, S.mode === 'live' ? { ...liveSolveOpts({ locked: S.locked, lensKnown: S.lensKnown }), lens: S.lens } : {
+    maxYaw: S.locked ? LIVE.MAX_YAW_LOCKED : 180, lens: S.lens,
     // unknown lens: try wide and tele too; a photo whose EXIF leaves the zoom unclear: try both readings
     zooms: S.locked ? null : S.lensKnown ? S.photoZooms : ZOOMS,
-    maxPitch: S.mode === 'photo' && !S.locked ? 35 : 12,       // a photo says nothing about tilt
-    strict: S.mode !== 'photo',                                // live: in cloud or fog, leave it to the sensors
+    maxPitch: S.mode === 'photo' && !S.locked ? 35 : 12,
+    strict: S.mode !== 'photo',
   });
   S.solveMs = performance.now() - t0;
   S.lastSol = sol;
-  if (sol && sol.ok) {
-    // Once locked, take half of each new correction: steady, but still tracks drift.
-    const k = S.locked && Math.abs(sol.yaw) < 3 ? 0.5 : 1;
-    S.yawCorr += sol.yaw * k;
-    S.camCorr = orthonormalize(matMul(pitchRollMat(sol.pitch * k, sol.roll * k), S.camCorr));
-    if (S.lens) {
-      S.cam.fn *= Math.pow(sol.fScale, k);
-      clampFn();
-      S.cam.k1 += (sol.k1 - S.cam.k1) * k;
-      syncFov();
-      if (S.locked) rememberLens();      // second agreeing solve: worth keeping
-    }
-    S.locked = true; S.misses = 0; S.settled++;
+  const c = { yawCorr: S.yawCorr, camCorr: S.camCorr, fn: S.cam.fn, k1: S.cam.k1, locked: S.locked, misses: S.misses };
+  const took = applySolve(c, sol, { fnMin: Camera.hfovToFn(FOV_MAX), fnMax: Camera.hfovToFn(FOV_MIN), lens: S.lens });
+  S.yawCorr = c.yawCorr; S.camCorr = c.camCorr; S.cam.fn = c.fn; S.cam.k1 = c.k1; S.locked = c.locked; S.misses = c.misses;
+  if (took.ok) {
+    if (S.lens) syncFov();
+    if (took.remember) rememberLens();      // second agreeing solve: worth keeping
+    S.settled++;
     status(S.mode === 'photo' && !S.photoHasCompass ? 'Aligned to the skyline' : `Aligned to the skyline (compass was ${Math.abs(S.yawCorr).toFixed(0)}° off)`, 'ok');
   } else {
-    if (++S.misses > 3) S.locked = false;
     if (!S.locked || sol?.hidden) {
       status(sol?.hidden ? 'Mountains hidden: going by the compass. Drag to adjust.'
         : sol ? 'Skyline match is weak. Drag to line it up.' : 'No skyline in view. Tilt up, or drag to line it up.');
@@ -1249,6 +1280,7 @@ function tick(now) {
   if (!S.source || !shader) return;
   resize();
   if (S.mode === 'live' && orient.R) S.sensorR = orient.R;
+  if (S.mode === 'live' && S.ride) followRide(now);
   if (S.mode === 'demo' && S.pano) power.time('demo', () => renderDemo(now));
   const [vw, vh] = sourceSize();
   if (!vw) return;
@@ -1277,7 +1309,7 @@ function tick(now) {
   if (fixBar.hidden !== fixOff) fixBar.hidden = fixOff;
   // a photo does not move: once it has settled, further solves can only disturb it
   const still = S.mode === 'photo' && S.settled >= 3;
-  if (S.pano && !still && now - S.lastSolve > (S.locked ? 1800 : 900)) power.time('solve', () => trySolve(now));
+  if (S.pano && !still && now - S.lastSolve > solveEvery(S.locked)) power.time('solve', () => trySolve(now));
   if (!$('sheet').hidden && now - (S.lastDebug || 0) > 400) { S.lastDebug = now; debug(); syncArrows(); }
 }
 
@@ -1685,7 +1717,11 @@ function wire() {
   // around instead.
   const stage = $('stage'), pts = new Map();
   const hold = () => {
-    S.holdUntil = performance.now() + 6000; S.locked = true; S.settled = 0;
+    // live (shared rule): the hand wins for a few seconds, then the full search resumes;
+    // a photo keeps the hand's alignment as a lock, so the match only refines it
+    if (S.mode === 'live') S.holdUntil = performance.now() + LIVE.HOLD_MS;
+    else { S.holdUntil = performance.now() + 6000; S.locked = true; }
+    S.settled = 0;
     status('Lined up by hand. Auto-align resumes in a few seconds.');
   };
   const nudge = (dxPx, dyPx, rollDeg, zoom) => {

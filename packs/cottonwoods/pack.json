@@ -1,7 +1,7 @@
 {
  "id": "cottonwoods",
  "name": "Cottonwood Canyons",
- "built": "2026-11-13T20:38:53+00:00",
+ "built": "2026-11-24T23:08:06+00:00",
  "demUnit": 0.25,
  "fine": {
   "file": "dem_fine.bin",
@@ -14,12 +14,12 @@
  },
  "coarse": {
   "file": "dem_coarse.bin",
-  "west": -111.84,
-  "south": 40.362,
-  "east": -111.45,
-  "north": 40.72,
-  "cols": 661,
-  "rows": 792
+  "west": -112.41482,
+  "south": 39.99221,
+  "east": -110.83518,
+  "north": 41.19779,
+  "cols": 2226,
+  "rows": 2222
  },
  "features": "features.json",
  "attribution": "Terrain: Mapzen/AWS Terrain Tiles (USGS 3DEP). Lifts, runs, peaks: \u00a9 OpenStreetMap contributors (ODbL).",

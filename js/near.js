@@ -14,9 +14,9 @@
 // caller passes that radius; nearGrid() pieces the tiles in hand into one grid
 // of that radius around the viewer, filling any gap from the 10 m map.
 
-import { Grid } from './terrain.js?v=1123.1925-052acda';
+import { Grid } from './terrain.js?v=1124.1623-cf16757';
 import { decodeLerc1 } from './lerc1.js';
-import { getFile, putFile, delFile } from './store.js?v=1123.1925-052acda';
+import { getFile, putFile, delFile } from './store.js?v=1124.1623-cf16757';
 
 const URL3DEP = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage';
 export const ATTRIBUTION = '1 m terrain: USGS 3D Elevation Program.';

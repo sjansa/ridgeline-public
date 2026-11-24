@@ -10,11 +10,11 @@
 // buildFeatures and the grid maths have no browser dependencies (the tests run
 // them in Node); only tile decoding and fetch do.
 
-import { declination } from './geomag.js?v=1123.1925-052acda';
+import { declination } from './geomag.js?v=1124.1623-cf16757';
 
 export const DEM_UNIT = 0.25;
-export const FINE_RES = 10, COARSE_RES = 50;      // meters
-export const COARSE_MARGIN_KM = 15;               // far ridges beyond the detailed area
+export const FINE_RES = 10, COARSE_RES = 60;      // meters
+export const COARSE_MARGIN_KM = 60;               // far ridges beyond the detailed area (as Moonshot: a 60 km skyline)
 export const AREA_MIN_KM = 2, AREA_MAX_KM = 25;   // side of the detailed area
 const TILE = 256, MAX_Z = 14, MERC_R = 6378137;
 const TILE_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;

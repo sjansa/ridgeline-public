@@ -7,7 +7,7 @@
 // pin can go anywhere, not just on the maps the phone has: the caller offers
 // to download the area around a spot outside them.
 
-import { CLASS_COLOR } from './runs.js?v=1123.1925-052acda';
+import { CLASS_COLOR } from './runs.js?v=1124.1623-cf16757';
 
 const LIFT = '#9b4dff';
 const ROUTE = '#ffd84a';
