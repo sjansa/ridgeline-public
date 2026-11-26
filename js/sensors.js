@@ -5,12 +5,17 @@
 // deviceorientationabsolute alpha is referenced to magnetic north. iOS alpha
 // starts from an arbitrary heading, so the yaw offset is taken from
 // webkitCompassHeading (see compassOffset) and low-pass filtered; the gyro-stabilized alpha then
-// carries the motion. Either way the result is only as good as the compass:
-// align.js removes what is left.
+// carries the motion. In the iOS app the offset comes from the native Motion plugin instead:
+// north as a direction in the phone's own axes, from Core Motion's fused attitude, which
+// does not depend on how the phone is held (webkitCompassHeading switches between the top
+// edge's bearing and the back's, and a wrong guess at where showed up as the view turning
+// when the phone was only tilted). Either way the result is only as good as the compass:
+// align.js removes what is left. hold = true keeps the offset as it is (on a lift: the
+// steel of a tram cabin or the cable pulls the compass).
 
-import { D2R } from './terrain.js?v=1124.1623-cf16757';
-import { matMul, yawMat } from './camera.js?v=1124.1623-cf16757';
-import { isBackCamera } from './lens.js?v=1124.1623-cf16757';
+import { D2R } from './terrain.js?v=1125.2219-5046fd2';
+import { matMul, yawMat } from './camera.js?v=1125.2219-5046fd2';
+import { isBackCamera } from './lens.js?v=1125.2219-5046fd2';
 
 export async function startCamera(video, deviceId) {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -113,6 +118,20 @@ export function compassOffset(M, heading) {
   return { off: heading - Math.atan2(useTop ? tE : bE, useTop ? tN : bN) / D2R, firm: true };
 }
 
+const NORTH_MS = 100;          // read the Motion plugin's north this often
+const NORTH_MAX_RATE = 40;     // deg/s: turning faster, its reading and alpha's are too far apart in time
+
+/**
+ * Yaw offset (degrees) that turns alpha's frame to magnetic north, from north given in device
+ * axes (the Motion plugin). level: how horizontal north comes out in alpha's frame (1 when the
+ * two agree on which way is up; less means they were read at different moments).
+ */
+export function northOffset(M, n) {
+  const e = M[0] * n[0] + M[1] * n[1] + M[2] * n[2], N = M[3] * n[0] + M[4] * n[1] + M[5] * n[2];
+  const len = Math.hypot(n[0], n[1], n[2]) || 1;
+  return { off: -Math.atan2(e, N) / D2R, level: Math.hypot(e, N) / len };
+}
+
 export class Orientation {
   constructor() {
     this.R = null;            // world -> camera, magnetic north until declination is applied
@@ -122,6 +141,9 @@ export class Orientation {
     this.absolute = false;
     this.rate = 0;            // rough angular speed, deg/s, for "is the phone steady"
     this.last = null; this.lastT = 0;
+    this.hold = false;        // keep the offset as it is (the compass is not to be trusted here)
+    this.native = false;      // north from the Motion plugin (iOS app)
+    this.M = null;            // latest device -> earth matrix, alpha's frame
     this.onEvent = this.onEvent.bind(this);
   }
 
@@ -137,19 +159,39 @@ export class Orientation {
       this.absolute = true;
       window.addEventListener('deviceorientationabsolute', this.onEvent);
     } else window.addEventListener('deviceorientation', this.onEvent);
+    if (!this.absolute && window.Capacitor?.PluginHeaders?.some(h => h.name === 'Motion')) {
+      try { this.native = !!(await window.Capacitor.nativePromise('Motion', 'start')).available; } catch { this.native = false; }
+      if (this.native) { clearInterval(this.timer); this.timer = setInterval(() => this.pollNorth(), NORTH_MS); }
+    }
   }
   stop() {
     window.removeEventListener('deviceorientationabsolute', this.onEvent);
     window.removeEventListener('deviceorientation', this.onEvent);
+    if (this.native) { clearInterval(this.timer); this.timer = 0; window.Capacitor.nativePromise('Motion', 'stop').catch(() => {}); this.native = false; }
+  }
+
+  /** The offset from the Motion plugin's north (device axes) and the latest alpha frame. */
+  async pollNorth() {
+    let r;
+    try { r = await window.Capacitor.nativePromise('Motion', 'read'); } catch { return; }
+    const M = this.M, n = r?.n;
+    if (!M || !n) return;
+    const off = northOffset(M, n);
+    this.raw = { ...(this.raw || {}), north: off.off, acc: r.acc, level: off.level };
+    // read while turning fast, the two sensors are a moment apart: skip it
+    if (this.hold || this.rate > NORTH_MAX_RATE || off.level < 0.9) return;
+    if (this.offset == null || this.rough) { this.offset = off.off; this.rough = false; }
+    else this.offset += (((off.off - this.offset + 540) % 360) - 180) * (r.acc >= 1 ? 0.12 : 0.04);
   }
 
   onEvent(ev) {
     if (ev.alpha == null || ev.beta == null) return;
     let M = deviceMatrix(ev.alpha, ev.beta, ev.gamma || 0);
+    this.M = M;
     if (!this.absolute && typeof ev.webkitCompassHeading === 'number' && ev.webkitCompassHeading >= 0) {
       const o = compassOffset(M, ev.webkitCompassHeading);
-      this.raw = { heading: ev.webkitCompassHeading, alpha: ev.alpha, beta: ev.beta, gamma: ev.gamma || 0, firm: o.firm };
-      if (o.firm || this.offset == null || this.rough) {
+      this.raw = { ...(this.raw || {}), heading: ev.webkitCompassHeading, alpha: ev.alpha, beta: ev.beta, gamma: ev.gamma || 0, firm: o.firm };
+      if (!this.native && !this.hold && (o.firm || this.offset == null || this.rough)) {
         if (this.offset == null || (this.rough && o.firm)) this.offset = o.off;
         else this.offset += (((o.off - this.offset + 540) % 360) - 180) * 0.03;
         this.rough = !o.firm;

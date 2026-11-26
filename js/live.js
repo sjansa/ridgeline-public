@@ -3,7 +3,7 @@
 // the viewpoint follows GPS. Taken from Moonshot's live view, which held the ridges
 // better in the field. No DOM.
 
-import { matMul, pitchRollMat, orthonormalize } from './camera.js?v=1124.1623-cf16757';
+import { matMul, pitchRollMat, orthonormalize } from './camera.js?v=1125.2219-5046fd2';
 
 export const LIVE = {
   SOLVE_MS: 900,            // skyline match this often while looking for a lock...
@@ -20,6 +20,11 @@ export const LIVE = {
   GOOD_FIX_M: 20,           // fixes worse than this do not move the viewpoint
   SETTLE_MS: 2000,          // a move counts once the position has stayed put this long...
   SETTLE_M: 3,              // ...within this
+  // ...but a big move is taken at once, on the move and from a rougher fix: a viewpoint
+  // 30 m out is far better than one left a kilometer behind
+  FAR_M: 40,                // this far (or twice the fix's error, if more) from the drawn spot
+  FAR_FIX_M: 50,            // from fixes this good or better
+  FAR_EVERY_MS: 5000,       // at most this often
 };
 /** Focal guesses while the lens is unknown: main, ultra-wide, tele. */
 export const ZOOMS = [1, 0.6, 1.65];
@@ -65,13 +70,20 @@ export function applySolve(c, sol, { fnMin = 0, fnMax = Infinity, lens = true } 
 
 /**
  * The viewpoint follows GPS: a good fix that has stayed put for a moment, far enough
- * from where the view is drawn from, calls move(fix). here() gives that spot ({lat, lon}).
+ * from where the view is drawn from, calls move(fix); so does a big move, straight away.
+ * here() gives that spot ({lat, lon}).
  */
 export class StandFollow {
-  constructor(here, move) { this.here = here; this.move = move; this.last = null; this.timer = 0; }
-  fix(p) {
+  constructor(here, move) { this.here = here; this.move = move; this.last = null; this.timer = 0; this.farT = -Infinity; }
+  fix(p, now = Date.now()) {
     this.last = p;
     clearTimeout(this.timer);
+    const h = this.here();
+    if (h && p.acc <= LIVE.FAR_FIX_M && now - this.farT >= LIVE.FAR_EVERY_MS && metersApart(p, h) >= Math.max(LIVE.FAR_M, 2 * p.acc)) {
+      this.farT = now;
+      this.move(p);
+      return;
+    }
     this.timer = setTimeout(() => {
       const q = this.last, h = this.here();
       if (!q || metersApart(q, p) > LIVE.SETTLE_M || !(q.acc <= LIVE.GOOD_FIX_M) || !h) return;

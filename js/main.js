@@ -1,28 +1,31 @@
 // main.js -- app shell: modes (camera / demo / photo), the frame loop, and
 // the alignment state that ties the sensors to the terrain model.
 
-import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1124.1623-cf16757';
-import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1124.1623-cf16757';
-import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1124.1623-cf16757';
-import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1124.1623-cf16757';
-import { renderSim } from './sim.js?v=1124.1623-cf16757';
-import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1124.1623-cf16757';
-import { LiftRide } from './liftride.js?v=1124.1623-cf16757';
-import { LIVE, ZOOMS, liveSolveOpts, applySolve, solveEvery, StandFollow, metersApart } from './live.js?v=1124.1623-cf16757';
-import { Barometer } from './barometer.js?v=1124.1623-cf16757';
-import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1124.1623-cf16757';
-import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1124.1623-cf16757';
-import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1124.1623-cf16757';
-import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1124.1623-cf16757';
-import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1124.1623-cf16757';
-import { pickOnMap } from './mappick.js?v=1124.1623-cf16757';
-import { relocate } from './relocate.js?v=1124.1623-cf16757';
-import { parseExif } from './exif.js?v=1124.1623-cf16757';
-import { PowerLog } from './power.js?v=1124.1623-cf16757';
-import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1124.1623-cf16757';
-import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1124.1623-cf16757';
-import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1124.1623-cf16757';
-import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1124.1623-cf16757';
+import { buildPano, chainCrests, panoLook, D2R } from './terrain.js?v=1125.2219-5046fd2';
+import { loadPack, prepareFeatures, buildOwnership, buildSlope, SLOPE_SCALES, slopeColor, MAX_REACH } from './runs.js?v=1125.2219-5046fd2';
+import { Camera, IDENT, matMul, matT, rotFromYPR, yprFromRot, yawMat, pitchRollMat, orthonormalize } from './camera.js?v=1125.2219-5046fd2';
+import { analyzeFrame, alignModel, solveAlignment } from './align.js?v=1125.2219-5046fd2';
+import { renderSim } from './sim.js?v=1125.2219-5046fd2';
+import { PhotoPano, ALTA, minFn, clampView } from './photodemo.js?v=1125.2219-5046fd2';
+import { LiftRide } from './liftride.js?v=1125.2219-5046fd2';
+import { LIVE, ZOOMS, liveSolveOpts, applySolve, solveEvery, StandFollow, metersApart } from './live.js?v=1125.2219-5046fd2';
+import { Barometer } from './barometer.js?v=1125.2219-5046fd2';
+import { watchScreenshots, stack } from './screenshot.js?v=1125.2219-5046fd2';
+import { Drawer } from './drawer.js?v=1125.2219-5046fd2';
+import { ask } from './ask.js?v=1125.2219-5046fd2';
+import { Shader, buildScene, drawOverlay, aimLifts, sceneRoute, scenePlaces } from './render.js?v=1125.2219-5046fd2';
+import { buildNetwork, planRoute, routeProgress, legText, featKey, OFF_ROUTE_M, ARRIVED_M, CLS_WORD } from './route.js?v=1125.2219-5046fd2';
+import { ICONS, loadPlaces, savePlaces, newPlace, shareLinks, parseShare } from './places.js?v=1125.2219-5046fd2';
+import { startCamera, listCameras, cameraZoom, Orientation, watchPosition } from './sensors.js?v=1125.2219-5046fd2';
+import { photoLens, describeCamera, zoomSteps } from './lens.js?v=1125.2219-5046fd2';
+import { pickOnMap } from './mappick.js?v=1125.2219-5046fd2';
+import { relocate } from './relocate.js?v=1125.2219-5046fd2';
+import { parseExif } from './exif.js?v=1125.2219-5046fd2';
+import { PowerLog } from './power.js?v=1125.2219-5046fd2';
+import { loadCatalog, savedAreas, areaAt, openArea, saveBuilt, removeArea, storageUse } from './store.js?v=1125.2219-5046fd2';
+import { in3dep, nearRadius, tilesFor, tilesInBox, ensureTiles, haveTiles, nearGrid, saveBox, unpin, pinned, boxAround as nearBox, SAVE_KM, TILE_BYTES, ATTRIBUTION as NEAR_ATTRIBUTION } from './near.js?v=1125.2219-5046fd2';
+import { sendFeedback, shrink, MAX_SHOTS } from './feedback.js?v=1125.2219-5046fd2';
+import { buildArea, checkBbox, estimate, bboxKm, AREA_MIN_KM, AREA_MAX_KM } from './build.js?v=1125.2219-5046fd2';
 
 if ('serviceWorker' in navigator) {
   addEventListener('load', async () => {
@@ -51,7 +54,7 @@ const RELOCATE_LIFT = 60;      // meters: how far above the ground it may put th
 const PHOTO_ACC_POOR = 25;     // meters: worse than this, suggest setting the spot on the map
 
 const S = {
-  mode: null, pack: null, prep: null, own: null,
+  mode: null, pack: null, prep: null, own: null, pending: [],
   pano: null, model: null, scene: null, origin: null, building: false,
   source: null,                         // video or canvas being shown
   sensorR: rotFromYPR(170, 8, 0),       // world -> camera straight from sensors
@@ -87,6 +90,14 @@ const power = new PowerLog('ridgeline', ['draw', 'demo', 'solve'], () => {
     baro: baro.on ? 1 : 0, locked: S.locked ? 1 : 0, video: vw ? `${vw}x${vh}` : '', canvas: `${S.view.sw}x${S.view.sh}`, sheet: $('sheet').hidden ? 0 : 1, ride: S.ride ? 1 : 0, route: S.route ? 1 : 0 };
 }, { on: DEV_LOGS });
 
+// The menu: a drawer on the bottom edge; on its side, a panel at the right (sized by CSS).
+const portrait = () => matchMedia('(orientation: portrait)').matches;
+const drawer = new Drawer($('sheet'), $('sheetGrip'), {
+  stops: () => [innerHeight * 0.46, innerHeight - 60],   // half height, or up to just under the status bar
+  ignore: '#picker',
+  enabled: portrait,
+});
+
 function status(text, cls = '') {
   $('statText').textContent = text;
   $('status').className = 'chip ' + cls;
@@ -96,12 +107,25 @@ function status(text, cls = '') {
 
 async function boot() {
   try { shader = new Shader(glCanvas); } catch (e) { status(e.message, 'bad'); }
+  startLoad('Loading the map list…');
   S.catalog = await loadCatalog();
   let want = null;
   try { want = localStorage.getItem('ridgeline.area'); } catch { /* no saved choice */ }
   await useArea(S.catalog.find(a => a.id === want) || S.catalog[0]);
   status('Ready');
-  if (S.pending) { const p = S.pending; S.pending = null; p(); }
+  startLoad(null);
+  for (const p of S.pending.splice(0)) p();
+}
+
+/** The loading line on the start screen: text and a fraction (null: indeterminate), or null when done. */
+function startLoad(text, f = null) {
+  const el = $('startLoad');
+  el.hidden = text == null;
+  if (text == null) return;
+  el.querySelector('span').textContent = text;
+  const bar = el.querySelector('i');
+  bar.classList.toggle('busy', f == null);
+  bar.style.width = f == null ? '' : `${Math.round(f * 100)}%`;
 }
 
 /** Load a map area (from the device if saved, else download and save it) and make it current. */
@@ -109,8 +133,12 @@ async function useArea(area) {
   if (S.area?.id === area.id) return;
   S.switching = true;
   try {
-    const src = await openArea(area, f => status(`Downloading the ${area.name} map… ${Math.round(f * 100)}%`));
-    if (src.saved) status(`Opening the ${area.name} map…`);
+    startLoad(`Loading the ${area.name} map…`);
+    const src = await openArea(area, f => {
+      status(`Downloading the ${area.name} map… ${Math.round(f * 100)}%`);
+      startLoad(`Downloading the ${area.name} map… ${Math.round(f * 100)}%`, f);
+    });
+    if (src.saved) { status(`Opening the ${area.name} map…`); startLoad(`Opening the ${area.name} map…`); }
     const pack = await loadPack(src.base, src.fetchBin, src.fetchJson);
     await src.finish();
     S.pack = pack; S.area = area;
@@ -223,7 +251,7 @@ function proposeArea(bbox, name, then = null) {
   for (const b of $('addDetail').children) b.onclick = () => { if (S.adding) { S.adding.detail = +b.dataset.d; what(); } };
   what();
   $('addName').value = (name || '').slice(0, 40);
-  $('sheet').hidden = false; showTab('maps');
+  drawer.open(); showTab('maps');
 }
 
 async function downloadArea() {
@@ -248,7 +276,7 @@ async function downloadArea() {
     addState(null);
     $('getHere').hidden = true;
     status(`${name}: ${area.lifts} lifts and ${area.runs} runs saved.`, 'ok');
-    if (then) { $('sheet').hidden = true; await useArea(area); then(); } else await chooseArea(area);
+    if (then) { drawer.close(); await useArea(area); then(); } else await chooseArea(area);
   } catch (e) {
     addState(null, ctl.signal.aborted ? 'Download canceled.' : e.message || String(e));
   } finally { S.adding = null; }
@@ -834,7 +862,7 @@ function runRelocate() {
 /** Say where the photo was taken by tapping a map. The compass tag goes with a bad fix, so search every heading. */
 async function pickPhotoSpot(start) {
   if (S.mode !== 'photo' || !S.pack) return;
-  $('sheet').hidden = true;
+  drawer.close();
   const o = start?.lat != null ? start : S.photoGps && !S.photoFix ? S.photoGps : S.origin;
   if (!o) return;
   $('pickHint').textContent = 'Tap where the photo was taken. Drag to move, pinch to zoom, twist to turn.'
@@ -947,7 +975,7 @@ function openPlaceForm(pos, existing = null) {
   }));
   $('placeDel').hidden = !existing; $('placeDel').textContent = 'Delete this spot'; $('placeDel').dataset.armed = '';
   $('placeForm').hidden = false;
-  $('sheet').hidden = false; showTab('go');
+  drawer.open(); showTab('go');
   $('placeForm').scrollIntoView({ block: 'nearest' });
 }
 function closePlaceForm() { editing = null; $('placeForm').hidden = true; }
@@ -974,12 +1002,12 @@ function saveHere() {
 async function placesMap() {
   if (!S.pack) return;
   const o = hereNow() || { lat: (S.pack.terrain.fine.north + S.pack.terrain.fine.south) / 2, lon: (S.pack.terrain.fine.west + S.pack.terrain.fine.east) / 2 };
-  $('sheet').hidden = true;
+  drawer.close();
   $('pickHint').textContent = 'Your spots' + (S.route ? ' and route' : '') + '. To add a spot, tap or long-press where it is, then Save. Drag to move, pinch to zoom.';
   const got = await pickOnMap($('picker'), S.pack.terrain.fine, S.prep, o, S.mode === 'live' && S.gps ? S.gps : null, null, null, geocode,
     { places: placeView(), route: S.route?.r.pts || null, okText: 'Save spot here', photo: false, long: true });
   if (got && got !== 'photo') openPlaceForm({ ...got, icon: 'pin' });
-  else { $('sheet').hidden = false; showTab('go'); }
+  else { drawer.open(); showTab('go'); }
 }
 async function sharePlace(p) {
   const l = shareLinks(p), text = `${ICONS[p.icon]?.emoji || ''} ${p.name}\nOpen in Ridgeline: ${l.app}\nOn a map: ${l.map}`;
@@ -1071,7 +1099,7 @@ function startRoute(target, quiet = false) {
   refreshScene();
   updateRoute(from);
   showRouteSteps();
-  if (!quiet) { $('sheet').hidden = true; status(`Route to ${target.name}: ${fmtT(r.t)}, ${fmtM(r.len)}.`, 'ok'); }
+  if (!quiet) { drawer.close(); status(`Route to ${target.name}: ${fmtT(r.t)}, ${fmtM(r.len)}.`, 'ok'); }
   return true;
 }
 /** Riding a lift: hide its line and say which lift it is (the route banner says it when routing). */
@@ -1280,6 +1308,7 @@ function tick(now) {
   if (!S.source || !shader) return;
   resize();
   if (S.mode === 'live' && orient.R) S.sensorR = orient.R;
+  orient.hold = !!S.ride;   // on a lift the cabin and cable pull the compass: keep the heading it had
   if (S.mode === 'live' && S.ride) followRide(now);
   if (S.mode === 'demo' && S.pano) power.time('demo', () => renderDemo(now));
   const [vw, vh] = sourceSize();
@@ -1303,7 +1332,7 @@ function tick(now) {
       if (S.mode === 'photo' && S.pano && (S.anchors?.length || S.grab)) drawAnchors();
     });
     // A snapshot has to be read in the same frame it was drawn: WebGL clears its canvas after.
-    if (snapWant) { const f = snapWant; snapWant = null; f(captureView()); }
+    if (snapWant) { const f = snapWant; snapWant = null; f(); }
   }
   const fixOff = S.mode !== 'photo' || !S.scene;
   if (fixBar.hidden !== fixOff) fixBar.hidden = fixOff;
@@ -1343,7 +1372,7 @@ function telemetry() {
     view: { sw: S.view.sw, sh: S.view.sh, fw: r(S.view.fw, 1), fh: r(S.view.fh, 1) }, source: { w: vw, h: vh }, softZoom: S.softZoom,
     camera: { ...ypr(S.cam.R), hfov: r(S.cam.hfov, 3), fn: r(S.cam.fn, 5), k1: r(S.cam.k1, 5), R: S.cam.R.map(v => r(v, 6)) },
     sensors: { ...ypr(S.sensorR || IDENT), yawCorr: r(S.yawCorr, 3), camCorr: S.camCorr.map(v => r(v, 6)),
-      compass: orient.raw ? { heading: r(orient.raw.heading, 1), firm: orient.raw.firm, alpha: r(orient.raw.alpha, 1), beta: r(orient.raw.beta, 1), gamma: r(orient.raw.gamma, 1) } : null,
+      compass: orient.raw ? { native: orient.native, north: r(orient.raw.north, 1), cal: orient.raw.acc ?? null, held: orient.hold, heading: r(orient.raw.heading, 1), firm: orient.raw.firm, alpha: r(orient.raw.alpha, 1), beta: r(orient.raw.beta, 1), gamma: r(orient.raw.gamma, 1) } : null,
       offset: r(orient.offset, 2), declination: orient.declination },
     lens: { label: S.camera.label, mult: S.camera.mult, zoom: r(S.camera.zoomValue, 3), known: S.lensKnown, solveLens: S.lens },
     align: { auto: S.auto, locked: S.locked, settled: S.settled, misses: S.misses,
@@ -1400,6 +1429,25 @@ function captureView() {
 
 const toJpeg = c => new Promise(done => c.toBlob(done, 'image/jpeg', 0.88));
 
+/** The picture and its overlay at full size, cropped to the picture, nothing else. Call from tick only. */
+function cleanView() {
+  const v = S.view, kx = glCanvas.width / (v.sw || glCanvas.width), ky = glCanvas.height / (v.sh || glCanvas.height);
+  const x = Math.max(0, Math.round((v.sw - v.fw) / 2 * kx)), y = Math.max(0, Math.round((v.sh - v.fh) / 2 * ky));
+  return stack([glCanvas, ovCanvas], { x, y, w: glCanvas.width - 2 * x, h: glCanvas.height - 2 * y });
+}
+
+// A phone screenshot also leaves a clean copy in Photos: the view without menus, messages or buttons.
+function wireScreenshots() {
+  watchScreenshots(() => (S.source ? new Promise(done => {
+    const want = () => done(cleanView()); snapWant = want;
+    setTimeout(() => { if (snapWant === want) { snapWant = null; done(null); } }, 1500);
+  }) : null), {
+    app: 'Ridgeline',
+    where: () => (S.mode === 'live' ? S.gps : S.origin),
+    done: (ok, err) => status(ok ? 'Clean copy of the screenshot saved to Photos.' : `Clean copy not saved: ${err}`, ok ? 'ok' : 'bad'),
+  });
+}
+
 // Beta feedback: notes and screenshots, opened as a new message in the phone's mail app.
 function wireFeedback() {
   const notes = $('fbNotes'), box = $('fbShots'), msg = $('fbMsg'), shots = [], snaps = [];
@@ -1429,7 +1477,7 @@ function wireFeedback() {
     if (shots.length > MAX_SHOTS - 2) { say(`Up to ${MAX_SHOTS} pictures per message.`, 'bad'); return; }
     $('fbSnap').disabled = true;
     try {
-      const got = await new Promise((done, fail) => { snapWant = done; setTimeout(() => { if (snapWant === done) { snapWant = null; fail(new Error('the view is not drawing')); } }, 1500); });
+      const got = await new Promise((done, fail) => { const want = () => done(captureView()); snapWant = want; setTimeout(() => { if (snapWant === want) { snapWant = null; fail(new Error('the view is not drawing')); } }, 1500); });
       const n = snaps.length + 1;
       snaps.push(got.telemetry);
       for (const c of [got.view, got.raw]) {
@@ -1538,8 +1586,7 @@ function wire() {
   $('cOutline').onchange = e => { S.opts.outline = e.target.checked; };
   const sheet = $('sheet');
   for (const b of $('tabs').children) b.onclick = () => showTab(b.dataset.tab);
-  $('more').onclick = () => { sheet.hidden = !sheet.hidden; };
-  $('sheetClose').onclick = () => { sheet.hidden = true; };
+  $('more').onclick = () => { if (drawer.isOpen) drawer.close(); else drawer.open(); };
   // Full screen in a browser. Android browsers can be asked for it on a tap.
   // iPhone Safari generally cannot: there the app runs full screen only when it is
   // opened from a Home Screen icon, so the start screen says how to add one.
@@ -1556,30 +1603,40 @@ function wire() {
       else el.webkitRequestFullscreen?.();
     } catch { /* stays in the browser window */ }
   };
-  const enter = async fn => {
+  // A tap while the map is still loading shows on its button, and goes on once it is in.
+  const enter = async (fn, btn, early) => {
     $('startErr').textContent = '';
+    btn?.setAttribute('aria-busy', 'true');
     try {
-      if (!S.pack) { await new Promise(res => { S.pending = res; }); }
-      await fn();
+      const first = early?.();   // permission prompts right away, not after the download
+      if (!S.pack) await new Promise(res => S.pending.push(res));
+      await fn(await first);
       $('start').hidden = true; $('bar').hidden = false;
     } catch (e) { $('startErr').textContent = e.message || String(e); }
+    finally { btn?.removeAttribute('aria-busy'); }
   };
   $('goLive').onclick = () => {
     // Ask for motion access synchronously in the tap, before any await.
     orient.stop();
     const p = orient.start();
     goFull();
-    enter(async () => { await p; await openCamera(); await setMode('live'); });
+    enter(() => setMode('live'), $('goLive'), async () => { await p; await openCamera(); });
   };
-  $('goDemo').onclick = () => { goFull(); enter(() => setMode('demo')); };
+  $('goDemo').onclick = () => { goFull(); enter(() => setMode('demo'), $('goDemo')); };
   $('goPhoto').onclick = () => $('file').click();
-  $('file').onchange = e => { const f = e.target.files[0]; if (f) enter(() => loadPhoto(f)); e.target.value = ''; };
+  window.appReady = true;
+  // a tap made before this code arrived (index.html kept it); a photo picked then arrives through #file
+  const early = window.earlyTap;
+  window.earlyTap = null;
+  if (early === 'goLive' || early === 'goDemo') $(early).click();
+  $('file').onchange = e => { const f = e.target.files[0]; if (f) enter(() => loadPhoto(f), $('goPhoto')); e.target.value = ''; };
+  if ($('file').files[0]) $('file').onchange({ target: $('file') });   // picked before this code arrived
   for (const b of $('modes').children) b.onclick = async () => {
     try {
       if (b.dataset.mode === 'photo') $('file').click();
       else if (b.dataset.mode === 'live') { orient.stop(); const p = orient.start(); await p; await openCamera(); await setMode('live'); }
       else await setMode('demo');
-      sheet.hidden = true;
+      drawer.close();
     } catch (e) { status(e.message || String(e), 'bad'); }
   };
   $('area').onchange = e => chooseArea(S.catalog.find(x => x.id === e.target.value));
@@ -1638,7 +1695,7 @@ function wire() {
       rows.push([Math.round(t), f(ev.alpha), f(ev.beta), f(ev.gamma), f(ev.webkitCompassHeading), f(ev.webkitCompassAccuracy, 0), ev.absolute ? 1 : 0, sa,
         f(orient.offset), f(y.yaw), f(y.pitch), f(y.roll), f(S.yawCorr), S.locked ? 1 : 0].join(','));
     };
-    $('rec').disabled = true; sheet.hidden = true;
+    $('rec').disabled = true; drawer.close();
     const tick = setInterval(() => {
       const left = SECS - (performance.now() - t0) / 1000;
       if (left > 0) { status(`Recording sensors… ${Math.ceil(left)} s. Tip the phone slowly down, then up.`); return; }
@@ -1651,7 +1708,7 @@ function wire() {
         't_ms,alpha,beta,gamma,compass,compassAcc,absolute,screenAngle,offset,appHeading,appPitch,appRoll,yawCorr,locked',
         ...rows,
       ].join('\n');
-      $('recOut').hidden = false; sheet.hidden = false; showTab('help');
+      $('recOut').hidden = false; drawer.open(); showTab('help');
       $('recShare').hidden = !navigator.share;
       status(`Recorded ${rows.length} samples. Copy or share them from Menu > Info.`, 'ok');
     }, 250);
@@ -1669,10 +1726,9 @@ function wire() {
   $('placeSave').onclick = savePlaceForm;
   $('placeCancel').onclick = closePlaceForm;
   $('placeName').onkeydown = e => { if (e.key === 'Enter') savePlaceForm(); };
-  $('placeDel').onclick = () => {
-    const b = $('placeDel');
-    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Sure? Tap again'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Delete this spot'; }, 3500); return; }
+  $('placeDel').onclick = async () => {
     const id = editing?.id;
+    if (!id || !(await ask(`Delete "${$('placeName').value.trim() || 'this spot'}" from your spots?`, 'Delete', 'Keep'))) return;
     S.places = S.places.filter(p => p.id !== id);
     if (S.route?.target.id === id) endRoute();
     closePlaceForm(); storePlaces();
@@ -1702,9 +1758,10 @@ function wire() {
   try { $('cBaro').checked = localStorage.getItem('ridgeline.baroShow') === '1'; } catch { /* off */ }
   $('cBaro').onchange = e => { try { localStorage.setItem('ridgeline.baroShow', e.target.checked ? '1' : '0'); } catch { /* not kept */ } syncBaro(); };
   $('cSpeak').onchange = e => { try { localStorage.setItem('ridgeline.speak', e.target.checked ? '1' : '0'); } catch { /* not kept */ } };
-  $('routeOpen').onclick = () => { $('sheet').hidden = false; showTab('go'); };
+  $('routeOpen').onclick = () => { drawer.open(); showTab('go'); };
   $('routeEnd').onclick = $('routeStop').onclick = () => { endRoute(); status('Route ended.'); };
   wireFeedback();
+  wireScreenshots();
   $('reset').onclick = () => {
     const [w, h] = S.source ? sourceSize() : [0, 0];
     try { localStorage.removeItem(lensKey(w, h)); } catch { /* nothing to forget */ }
@@ -1814,7 +1871,7 @@ boot().then(() => {
   // URL switches for testing: ?demo&slope&outline&nosnow&alpha=0.4, ?photo=<url>
   const q = new URLSearchParams(location.search);
   if (q.has('demo')) $('goDemo').click();
-  if (q.has('debug')) { $('sheet').hidden = false; showTab(q.get('debug') || 'help'); }
+  if (q.has('debug')) { drawer.open(); showTab(q.get('debug') || 'help'); }
   if (q.has('photo')) fetch(q.get('photo')).then(r => r.blob()).then(b => loadPhoto(b)).then(() => { $('start').hidden = true; $('bar').hidden = false; });
   if (q.has('slope')) $('shade').children[1].click();
   if (q.has('outline')) $('cOutline').click();
@@ -1827,6 +1884,6 @@ boot().then(() => {
     q.delete('spot'); q.delete('name'); q.delete('icon');
     try { history.replaceState(null, '', location.pathname + (q.size ? `?${q}` : '') + location.hash); } catch { /* stays in the address bar */ }
   }
-}).catch(e => { status(`Could not load the map: ${e.message}`, 'bad'); $('startErr').textContent = `Could not load the map: ${e.message}`; });
+}).catch(e => { startLoad(null); status(`Could not load the map: ${e.message}`, 'bad'); $('startErr').textContent = `Could not load the map: ${e.message}`; });
 // Test hook: lets a headless run drive the app.
 window.__ridgeline = { S, setMode, setViewpoint, proposeArea, startRoute, endRoute, updateRoute, network, onFix };

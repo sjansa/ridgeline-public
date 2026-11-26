@@ -1,7 +1,7 @@
 // liftride.js -- notice when the rider is going up a lift line, from GPS alone:
 // staying on one lift's line, moving along it uphill at lift speed.
 
-import { LIFT_SPEED } from './route.js?v=1124.1623-cf16757';
+import { LIFT_SPEED } from './route.js?v=1125.2219-5046fd2';
 
 const KEEP_S = 90;          // seconds of fixes kept
 const MIN_GAIN_M = 30;      // meters gained along the line before calling it a ride
